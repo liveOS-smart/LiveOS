@@ -1,25 +1,25 @@
 {
-  "name": "LiveOS",
+  "name": "LiveOS – Mach dir dein Leben einfach.",
   "short_name": "LiveOS",
-  "description": "LiveOS OS3 – dein persönlicher KI-Assistent",
+  "description": "Finanzen, Kalender, Listen und Notizen an einem Ort.",
   "lang": "de-DE",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f7f9fc",
-  "theme_color": "#10243f",
+  "background_color": "#f8fafc",
+  "theme_color": "#0F172A",
   "icons": [
     {
-      "src": "./assets/liveos-icon.png?v=os3-brain",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "./assets/liveos-icon.svg?v=os3-brain",
+      "src": "./assets/liveos-icon.svg?v=liveos-v1",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/liveos-icon.png?v=liveos-v1",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
