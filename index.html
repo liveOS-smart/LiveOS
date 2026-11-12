@@ -952,7 +952,7 @@
   const TUTORIAL_KEY="liveos-intro-seen-v1";
   const root=document.getElementById("root");
   const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
-  const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],notes:[]});
+  const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],lists:[],notes:[]});
   const loadState=()=>{try{return Object.assign(defaultState(),JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"));}catch(_){return defaultState();}};
   let data=loadState();
   let activePage=localStorage.getItem("liveos-active-page-v1")||"home";
@@ -1056,13 +1056,22 @@
     const list=events.length?'<div class="space-y-2">'+events.map(e=>'<div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3"><div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-600 ring-1 ring-slate-200">'+icon(e.type==="Anruf"?"phone":e.type==="Geburtstag"?"cake":"calendar-days","h-5 w-5")+'</div><div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold text-slate-800">'+esc(e.title)+'</div><div class="mt-0.5 text-xs text-slate-500">'+fmtDate(e.date,{weekday:"short",day:"2-digit",month:"short",year:"numeric"})+' · '+esc(e.time||"Keine Uhrzeit")+' · '+esc(e.type)+'</div>'+(e.note?'<div class="mt-1 truncate text-xs text-slate-400">'+esc(e.note)+'</div>':"")+'</div><button class="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600" data-action="delete-event" data-id="'+esc(e.id)+'" aria-label="Termin löschen">'+icon("trash-2","h-4 w-4")+'</button></div>').join("")+'</div>':emptyState("Noch keine Termine","Erstelle einen Termin oder plane einen Anruf.","calendar-days");
     return '<div class="space-y-6"><div class="grid gap-4 md:grid-cols-[.9fr_1.1fr]">'+card("Monatskalender",fmtDate(todayISO(),{month:"long",year:"numeric"}),"calendar-days",calendarGrid())+card("Termin oder Anruf planen","Lege fest, wann du etwas erledigen möchtest","calendar-plus",eventForm)+'</div>'+card("Deine Termine",events.length+" Einträge","clock",list)+'</div>';
   }
+
   function listsHTML(){
     const taskForm='<form id="task-form" class="grid gap-3 sm:grid-cols-[1fr_auto]"><input class="liveos-field" name="title" maxlength="100" placeholder="Was möchtest du erledigen?" required><button class="liveos-primary" type="submit">'+icon("plus","h-4 w-4")+' Aufgabe hinzufügen</button><input class="liveos-field" name="due" type="date" aria-label="Fällig am"><select class="liveos-field" name="priority"><option value="Normal">Normale Priorität</option><option value="Hoch">Hohe Priorität</option><option value="Niedrig">Niedrige Priorität</option></select></form>';
     const tasks=data.tasks.slice().sort((a,b)=>Number(a.done)-Number(b.done));
-    const taskList=tasks.length?'<div class="space-y-2">'+tasks.map(t=>'<div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3"><input type="checkbox" class="liveos-check" data-action="toggle-task" data-id="'+esc(t.id)+'" '+(t.done?"checked":"")+' aria-label="Aufgabe erledigt"><div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold '+(t.done?"text-slate-400 line-through":"text-slate-800")+'">'+esc(t.title)+'</div><div class="mt-0.5 text-xs text-slate-500">'+(t.due?"Fällig: "+fmtDate(t.due)+" · ":"")+esc(t.priority||"Normal")+'</div></div><button class="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600" data-action="delete-task" data-id="'+esc(t.id)+'" aria-label="Aufgabe löschen">'+icon("trash-2","h-4 w-4")+'</button></div>').join("")+'</div>':emptyState("Deine Liste ist noch leer","Füge Aufgaben hinzu und hake sie ab, sobald du fertig bist.","list-checks");
+    const taskList=tasks.length?'<div class="space-y-2">'+tasks.map(t=>'<div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3"><input type="checkbox" class="liveos-check" data-action="toggle-task" data-id="'+esc(t.id)+'" '+(t.done?"checked":"")+' aria-label="Aufgabe erledigt"><div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold '+(t.done?"text-slate-400 line-through":"text-slate-800")+'">'+esc(t.title)+'</div><div class="mt-0.5 text-xs text-slate-500">'+(t.due?"Fällig: "+fmtDate(t.due)+" · ":"")+esc(t.priority||"Normal")+'</div></div><button class="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600" data-action="delete-task" data-id="'+esc(t.id)+'" aria-label="Aufgabe löschen">'+icon("trash-2","h-4 w-4")+'</button></div>').join("")+'</div>':emptyState("Deine Aufgabenliste ist leer","Füge Aufgaben hinzu und hake sie ab, sobald du fertig bist.","list-checks");
     const done=tasks.filter(t=>t.done).length,pct=tasks.length?Math.round(done/tasks.length*100):0;
-    return '<div class="space-y-6">'+card("Neue Aufgabe","Erstelle deine persönliche To-do-Liste","list-plus",taskForm)+'<section class="liveos-card p-4 md:p-5"><div class="flex items-center justify-between"><div><h2 class="text-base font-bold text-slate-900">Meine Aufgaben</h2><p class="mt-0.5 text-xs text-slate-500">'+done+' von '+tasks.length+' erledigt</p></div><div class="text-sm font-bold text-slate-700">'+pct+'%</div></div><div class="liveos-progress mt-3"><span style="width:'+pct+'%"></span></div><div class="mt-4">'+taskList+'</div></section></div>';
+    const customForm='<form id="list-form" class="flex flex-col gap-3 sm:flex-row"><input class="liveos-field min-w-0 flex-1" name="title" maxlength="70" placeholder="z. B. Einkauf, Ideen oder Zuhause" required><button class="liveos-primary" type="submit">'+icon("list-plus","h-4 w-4")+' Liste erstellen</button></form>';
+    const customLists=data.lists||[];
+    const customContent=customLists.length?'<div class="grid gap-3 md:grid-cols-2">'+customLists.map(list=>{
+      const items=list.items||[];
+      const rows=items.length?'<div class="mt-3 space-y-2">'+items.map(item=>'<div class="flex items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-100"><input type="checkbox" class="liveos-check" data-action="toggle-list-item" data-list-id="'+esc(list.id)+'" data-item-id="'+esc(item.id)+'" '+(item.done?"checked":"")+'><span class="min-w-0 flex-1 text-sm '+(item.done?"text-slate-400 line-through":"text-slate-700")+'">'+esc(item.title)+'</span><button class="rounded-lg p-1.5 text-slate-300 hover:text-rose-600" data-action="delete-list-item" data-list-id="'+esc(list.id)+'" data-item-id="'+esc(item.id)+'" aria-label="Eintrag löschen">'+icon("x","h-3.5 w-3.5")+'</button></div>').join("")+'</div>':emptyState("Noch keine Einträge","Füge den ersten Punkt zu deiner Liste hinzu.","list-checks");
+      return '<article class="rounded-2xl border border-slate-200 bg-slate-50/75 p-4"><div class="flex items-center gap-2"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-600 ring-1 ring-slate-200">'+icon("list-checks","h-4 w-4")+'</div><div class="min-w-0 flex-1"><h3 class="truncate text-sm font-bold text-slate-800">'+esc(list.title)+'</h3><p class="text-[11px] text-slate-500">'+items.filter(x=>x.done).length+' / '+items.length+' erledigt</p></div><button data-action="delete-list" data-id="'+esc(list.id)+'" class="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600" aria-label="Liste löschen">'+icon("trash-2","h-4 w-4")+'</button></div><form id="list-item-form-'+esc(list.id)+'" class="mt-3 flex gap-2"><input class="liveos-field min-w-0 py-2 text-sm" name="item" maxlength="100" placeholder="Eintrag hinzufügen" required><button class="liveos-secondary shrink-0 px-3 py-2" type="submit" aria-label="Eintrag hinzufügen">'+icon("plus","h-4 w-4")+'</button></form>'+rows+'</article>';
+    }).join("")+'</div>':emptyState("Noch keine eigenen Listen","Erstelle zum Beispiel eine Einkaufsliste oder eine Liste für Ideen.","list-plus");
+    return '<div class="space-y-6">'+card("Neue Aufgabe","Einzelne Aufgaben mit Fälligkeit und Priorität","list-plus",taskForm)+'<section class="liveos-card p-4 md:p-5"><div class="flex items-center justify-between"><div><h2 class="text-base font-bold text-slate-900">Meine Aufgaben</h2><p class="mt-0.5 text-xs text-slate-500">'+done+' von '+tasks.length+' erledigt</p></div><div class="text-sm font-bold text-slate-700">'+pct+'%</div></div><div class="liveos-progress mt-3"><span style="width:'+pct+'%"></span></div><div class="mt-4">'+taskList+'</div></section>'+card("Eigene Listen","Erstelle mehrere Listen und hake einzelne Einträge ab","list-checks",customForm+customContent)+'</div>';
   }
+
   function moreHTML(){
     const noteForm='<form id="note-form" class="space-y-3"><input class="liveos-field" name="title" maxlength="90" placeholder="Überschrift deiner Notiz" required><textarea class="liveos-field min-h-24 resize-y" name="body" maxlength="2500" placeholder="Schreibe deine Notiz..." required></textarea><button class="liveos-primary" type="submit">'+icon("notebook-pen","h-4 w-4")+' Notiz speichern</button></form>';
     const notes=data.notes.slice().sort((a,b)=>b.createdAt-a.createdAt);
@@ -1115,6 +1124,15 @@
     }
     if(action==="delete-task"){data.tasks=data.tasks.filter(x=>x.id!==el.dataset.id);save();render();return;}
     if(action==="delete-note"){data.notes=data.notes.filter(x=>x.id!==el.dataset.id);save();render();return;}
+    if(action==="delete-list"){data.lists=(data.lists||[]).filter(x=>x.id!==el.dataset.id);save();render();return;}
+    if(action==="toggle-list-item"){
+      const list=(data.lists||[]).find(x=>x.id===el.dataset.listId),item=list?.items?.find(x=>x.id===el.dataset.itemId);
+      if(item){item.done=!item.done;save();render();}return;
+    }
+    if(action==="delete-list-item"){
+      const list=(data.lists||[]).find(x=>x.id===el.dataset.listId);
+      if(list){list.items=(list.items||[]).filter(x=>x.id!==el.dataset.itemId);save();render();}return;
+    }
     if(action==="export-data"){
       const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");
       a.href=url;a.download="liveos-daten-"+todayISO()+".json";a.click();URL.revokeObjectURL(url);return;
@@ -1142,6 +1160,14 @@
       const title=String(fd.get("title")||"").trim();if(!title)return;
       data.tasks.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,due:String(fd.get("due")||""),priority:String(fd.get("priority")||"Normal"),done:false});
       save();render();return;
+    }
+    if(form.id==="list-form"){
+      const title=String(fd.get("title")||"").trim();if(!title)return;
+      data.lists=data.lists||[];data.lists.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,items:[]});save();render();return;
+    }
+    if(form.id.startsWith("list-item-form-")){
+      const listId=form.id.slice("list-item-form-".length),title=String(fd.get("item")||"").trim(),list=(data.lists||[]).find(x=>x.id===listId);
+      if(!list||!title)return;list.items=list.items||[];list.items.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,done:false});save();render();return;
     }
     if(form.id==="note-form"){
       const title=String(fd.get("title")||"").trim(),body=String(fd.get("body")||"").trim();if(!title||!body)return;
