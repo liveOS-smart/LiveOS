@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="LiveOS">
 <meta name="description" content="LiveOS – Mach dir dein Leben einfach. Finanzen, Kalender, Listen und Notizen an einem Ort.">
 <link rel="manifest" href="./manifest.webmanifest?v=liveos-v1">
-<link rel="icon" type="image/svg+xml" href="./assets/liveos-icon.svg?v=liveos-v1">
+<link rel="icon" type="image/png" sizes="120x120" href="./assets/liveos-icon.png?v=liveos-v1">
 <link rel="apple-touch-icon" href="./assets/liveos-icon.png?v=liveos-v1">
 <title>LiveOS – Mach dir dein Leben einfach.</title>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -997,7 +997,7 @@
     const meta=pageMeta();
     return '<header class="mb-6 rounded-[2rem] bg-slate-900 p-4 text-white shadow-xl md:p-5">'+
       '<div class="flex items-center justify-between gap-4"><div class="flex min-w-0 items-center gap-3">'+
-      '<img src="./assets/liveos-icon.svg?v=liveos-v1" alt="LiveOS" class="h-12 w-12 shrink-0 rounded-2xl bg-white object-contain p-1 shadow-lg ring-1 ring-white/20">'+
+      '<img src="./assets/liveos-icon.png?v=liveos-v1" alt="LiveOS" class="h-12 w-12 shrink-0 rounded-2xl bg-white object-contain p-1 shadow-lg ring-1 ring-white/20">'+
       '<div class="min-w-0"><div class="mb-1 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">'+icon("sparkles","h-3.5 w-3.5")+' LIVEOS</div><h1 class="truncate text-2xl font-bold tracking-tight md:text-3xl">'+meta[0]+'</h1><p class="mt-1 text-sm text-white/65">'+meta[1]+'</p></div></div>'+
       '<button type="button" data-action="bank-info" aria-label="Bankverbindung" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white/90 backdrop-blur-md transition hover:bg-white/15">'+icon("shield-check","h-5 w-5")+'</button></div>'+
       '<div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/10 p-3"><div><div class="text-xs text-white/60">Diesen Monat verfügbar</div><div class="mt-0.5 text-xl font-bold">'+money(remaining())+'</div></div><div class="text-right"><div class="text-xs text-white/60">Monatsausgaben</div><div class="mt-0.5 text-sm font-semibold">'+money(monthTotal())+'</div></div></div></header>';
