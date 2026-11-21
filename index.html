@@ -1540,6 +1540,31 @@
     if(action==="tutorial-next"){if(tutorialStep<4){tutorialStep++;render();}else finishTutorial();return;}
     if(action==="bank-info"){bankModalOpen=true;render();return;}
     if(action==="close-bank"){bankModalOpen=false;render();return;}
+    if(action==="enable-notifications"){enableLiveOSNotifications();return;}
+    if(action==="delete-reminder"){
+      data.reminders=(data.reminders||[]).filter(x=>x.id!==el.dataset.id);save();render();return;
+    }
+    if(action==="delete-product-memory"){
+      const userId=currentUser&&currentUser.id,product=(data.productMemories||[]).find(x=>x.id===el.dataset.id);
+      data.productMemories=(data.productMemories||[]).filter(x=>x.id!==el.dataset.id);
+      if(userId&&product)deleteProductPhoto(product.id,userId).catch(error=>console.warn("Local photo cleanup failed.",error));
+      save();render();return;
+    }
+    if(action==="buy-again"){
+      const product=(data.productMemories||[]).find(x=>x.id===el.dataset.id);
+      if(product){
+        data.lists=data.lists||[];
+        let list=data.lists.find(x=>x.title==="Einkauf");
+        if(!list){list={id:crypto.randomUUID(),title:"Einkauf",items:[]};data.lists.push(list);}
+        list.items=list.items||[];
+        list.items.push({id:crypto.randomUUID(),title:product.title+(product.brand?" · "+product.brand:""),done:false});
+        save();activePage="lists";localStorage.setItem("liveos-active-page-v1",activePage);render();
+      }
+      return;
+    }
+    if(action==="delete-loyalty-card"){
+      data.loyaltyCards=(data.loyaltyCards||[]).filter(x=>x.id!==el.dataset.id);save();render();return;
+    }
     if(action==="delete-expense"){data.expenses=data.expenses.filter(x=>x.id!==el.dataset.id);save();render();return;}
     if(action==="delete-event"){data.events=data.events.filter(x=>x.id!==el.dataset.id);save();render();return;}
     if(action==="toggle-task"){
@@ -1561,7 +1586,7 @@
       a.href=url;a.download="liveos-daten-"+todayISO()+".json";a.click();URL.revokeObjectURL(url);return;
     }
     if(action==="reset-data"){
-      if(confirm("Möchtest du wirklich alle lokal gespeicherten LiveOS-Daten löschen?")){data=defaultState();save();render();}return;
+      if(confirm("Möchtest du wirklich alle LiveOS-Daten dieses Kontos löschen?")){const userId=currentUser&&currentUser.id;data=defaultState();if(userId)clearProductPhotosForUser(userId).catch(error=>console.warn("Local photo cleanup failed.",error));save();render();}return;
     }
   });
   document.addEventListener("submit",async function(event){
@@ -1616,6 +1641,53 @@
       return;
     }
     event.preventDefault();const fd=new FormData(form);
+
+    if(form.id==="reminder-form"){
+      const title=String(fd.get("title")||"").trim(),localDate=String(fd.get("scheduledAt")||"");
+      const scheduledAt=new Date(localDate);
+      if(!title||!localDate||!Number.isFinite(scheduledAt.getTime()))return;
+      if(scheduledAt.getTime()<=Date.now()){alert("Bitte wähle einen Zeitpunkt in der Zukunft.");return;}
+      data.reminders=data.reminders||[];
+      data.reminders.push({
+        id:crypto.randomUUID(),title,message:String(fd.get("message")||"").trim(),
+        scheduledAt:scheduledAt.toISOString(),repeat:String(fd.get("repeat")||"none"),
+        enabled:true,sentAt:null,createdAt:Date.now()
+      });
+      save();render();return;
+    }
+    if(form.id==="product-memory-form"){
+      const title=String(fd.get("title")||"").trim();if(!title)return;
+      const id=crypto.randomUUID(),photo=fd.get("photo");
+      if(photo&&photo.size){
+        try{
+          const compressed=await compressProductPhoto(photo);
+          await storeProductPhoto(id,compressed);
+        }catch(error){
+          alert(error&&error.message?error.message:"Das Foto konnte nicht lokal gespeichert werden.");return;
+        }
+      }
+      data.productMemories=data.productMemories||[];
+      data.productMemories.push({
+        id,title,brand:String(fd.get("brand")||"").trim(),
+        store:String(fd.get("store")||"").trim(),
+        note:String(fd.get("note")||"").trim(),
+        savedAt:Date.now(),photoKey:photo&&photo.size?id:null
+      });
+      save();render();return;
+    }
+    if(form.id==="loyalty-card-form"){
+      const provider=String(fd.get("provider")||"Andere");
+      const cardNumber=String(fd.get("cardNumber")||"").trim();
+      const pointsValue=String(fd.get("points")||"").trim();
+      const points=pointsValue===""?null:Number(pointsValue);
+      data.loyaltyCards=data.loyaltyCards||[];
+      data.loyaltyCards.push({
+        id:crypto.randomUUID(),provider,cardNumber,
+        points:Number.isFinite(points)?points:null,
+        label:String(fd.get("label")||"").trim(),createdAt:Date.now()
+      });
+      save();render();return;
+    }
     if(form.id==="salary-form"){
       const salary=Number(fd.get("salary"));if(Number.isFinite(salary)&&salary>=0){data.monthlyIncome=salary;save();render();}return;
     }
