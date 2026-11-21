@@ -960,13 +960,13 @@
   let currentUser=null,authReady=false,authMode="login",authMessage="",authMessageType="info",authBusy=false,authEmailDraft="";
   let syncQueue=Promise.resolve(),syncStatus="idle",realtimeChannel=null,authHydrationToken=0;
   const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
-  const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],lists:[],notes:[]});
+  const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],lists:[],notes:[],reminders:[],productMemories:[],loyaltyCards:[]});
   const dataStorageKey=()=>currentUser?STORAGE_KEY+":user:"+currentUser.id:STORAGE_KEY+":guest";
-  const normalizeState=(value)=>{const base=defaultState();if(!value||typeof value!=="object"||Array.isArray(value))return base;return Object.assign(base,value,{expenses:Array.isArray(value.expenses)?value.expenses:[],events:Array.isArray(value.events)?value.events:[],tasks:Array.isArray(value.tasks)?value.tasks:[],lists:Array.isArray(value.lists)?value.lists:[],notes:Array.isArray(value.notes)?value.notes:[]});};
+  const normalizeState=(value)=>{const base=defaultState();if(!value||typeof value!=="object"||Array.isArray(value))return base;return Object.assign(base,value,{expenses:Array.isArray(value.expenses)?value.expenses:[],events:Array.isArray(value.events)?value.events:[],tasks:Array.isArray(value.tasks)?value.tasks:[],lists:Array.isArray(value.lists)?value.lists:[],notes:Array.isArray(value.notes)?value.notes:[],reminders:Array.isArray(value.reminders)?value.reminders:[],productMemories:Array.isArray(value.productMemories)?value.productMemories:[],loyaltyCards:Array.isArray(value.loyaltyCards)?value.loyaltyCards:[]});};
   const loadState=()=>{try{return normalizeState(JSON.parse(localStorage.getItem(dataStorageKey())||"{}"));}catch(_){return defaultState();}};
   let data=defaultState();
   let activePage=localStorage.getItem("liveos-active-page-v1")||"home";
-  const pages=["home","finances","calendar","lists","more"];
+  const pages=["home","finances","calendar","lists","shopping","more"];
   if(!pages.includes(activePage)) activePage="home";
   let tutorialOpen=localStorage.getItem(TUTORIAL_KEY)!=="true";
   let tutorialStep=0,bankModalOpen=false,navFrom=null,animatePage=true;
@@ -990,8 +990,11 @@
       const sessionResult=await supabaseClient.auth.getSession();
       if(sessionResult.error)throw sessionResult.error;
       if(!sessionResult.data.session||sessionResult.data.session.user.id!==userId)return;
-      const result=await supabaseClient.rpc("liveos_sync_app_state",{p_state:JSON.parse(snapshot)});
+      const savedState=JSON.parse(snapshot);
+      const result=await supabaseClient.rpc("liveos_sync_app_state",{p_state:savedState});
       if(result.error)throw result.error;
+      const reminderResult=await supabaseClient.rpc("liveos_sync_reminders",{p_reminders:savedState.reminders||[]});
+      if(reminderResult.error)throw reminderResult.error;
       if(currentUser&&currentUser.id===userId){syncStatus="saved";updateSyncStatusUI();}
     }).catch(error=>{
       console.error("LiveOS cloud sync failed.",error);
@@ -1004,7 +1007,8 @@
       finances:["Finanzen","Einnahmen und Ausgaben im Blick"],
       calendar:["Kalender","Termine, Erinnerungen und Anrufe"],
       lists:["Listen","Aufgaben und Checklisten organisieren"],
-      more:["Mehr","Notizen und weitere Werkzeuge"]
+      shopping:["Einkaufen","Lieblingsprodukte und Bonusprogramme"],
+      more:["Mehr","Notizen, Plugins und Einstellungen"]
     };
     return titles[activePage]||titles.home;
   };
@@ -1019,7 +1023,7 @@
   function navIndicator(){
     const index=navIndex(activePage),from=navFrom===null?index:navIndex(navFrom);
     const translate=i=>i===0?"translateX(0)":"translateX(calc("+(i*100)+"% + "+(i*4)+"px))";
-    return '<span aria-hidden="true" class="ua-nav-indicator '+(navFrom!==null&&from!==index?"ua-nav-indicator-moving":"")+'" style="width:calc((100% - 16px) / 5);--ua-nav-from:'+translate(from)+';--ua-nav-to:'+translate(index)+';transform:'+translate(index)+'"></span>';
+    return '<span aria-hidden="true" class="ua-nav-indicator '+(navFrom!==null&&from!==index?"ua-nav-indicator-moving":"")+'" style="width:calc((100% - 20px) / 6);--ua-nav-from:'+translate(from)+';--ua-nav-to:'+translate(index)+';transform:'+translate(index)+'"></span>';
   }
 
   function authRedirectUrl(){
@@ -1156,6 +1160,7 @@
     stopRealtimeSync();
     currentUser=nextUser;
     if(!currentUser){
+      if(reminderWatcher){clearInterval(reminderWatcher);reminderWatcher=null;}
       data=defaultState();
       syncStatus="idle";
       authReady=true;
@@ -1302,13 +1307,15 @@
   function appHTML(){
     const body=activePage==="home"?homeHTML():activePage==="finances"?financesHTML():activePage==="calendar"?calendarHTML():activePage==="lists"?listsHTML():moreHTML();
     const title=pageMeta()[0];
-    return '<div class="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 text-slate-900"><div class="mx-auto w-full max-w-6xl px-4 pb-32 pt-5 md:px-6 md:pb-32 md:pt-6">'+topbar()+'<main id="ua-page-content" class="'+(animatePage?"ua-page-enter":"")+'"><div class="space-y-6">'+body+'</div></main></div><nav class="glass-nav fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2"><div class="ua-nav-track mx-auto grid max-w-xl grid-cols-5 gap-1">'+navIndicator()+navItem("home","house","Home")+navItem("finances","wallet","Finanzen")+navItem("calendar","calendar-days","Kalender")+navItem("lists","list-checks","Listen")+navItem("more","layout-grid","Mehr")+'</div></nav></div>';
+    return '<div class="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 text-slate-900"><div class="mx-auto w-full max-w-6xl px-4 pb-32 pt-5 md:px-6 md:pb-32 md:pt-6">'+topbar()+'<main id="ua-page-content" class="'+(animatePage?"ua-page-enter":"")+'"><div class="space-y-6">'+body+'</div></main></div><nav class="glass-nav fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2"><div class="ua-nav-track mx-auto grid max-w-2xl grid-cols-6 gap-1">'+navIndicator()+navItem("home","house","Home")+navItem("finances","wallet","Finanzen")+navItem("calendar","calendar-days","Kalender")+navItem("lists","list-checks","Listen")+navItem("shopping","shopping-bag","Einkauf")+navItem("more","layout-grid","Mehr")+'</div></nav></div>';
   }
   function render(){
     if(!authReady)root.innerHTML=authLoadingHTML();
     else if(!currentUser||authMode==="update-password")root.innerHTML=authHTML();
     else root.innerHTML=appHTML()+(bankModalOpen?bankModal():"")+(tutorialOpen?onboardingHTML():"");
     if(window.lucide&&typeof window.lucide.createIcons==="function")window.lucide.createIcons();
+    refreshProductPhotoImages();
+    if(currentUser)startReminderWatcher();
     animatePage=false;navFrom=null;
   }
   function finishTutorial(){tutorialOpen=false;localStorage.setItem(TUTORIAL_KEY,"true");render();}
