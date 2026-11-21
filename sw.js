@@ -32,8 +32,8 @@ self.addEventListener("push",event=>{
   const title=typeof payload.title==="string"?payload.title:"LiveOS";
   const options={
     body:typeof payload.body==="string"?payload.body:"Du hast eine neue Erinnerung.",
-    icon:"./assets/liveos-icon.png",
-    badge:"./assets/liveos-icon.png",
+    icon:"./assets/liveos-icon-192.png?v=liveos-v3",
+    badge:"./assets/liveos-icon-192.png?v=liveos-v3",
     tag:typeof payload.tag==="string"?payload.tag:"liveos-push",
     data:{url:typeof payload.url==="string"?payload.url:"./"}
   };
