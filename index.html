@@ -1001,6 +1001,106 @@
       if(currentUser&&currentUser.id===userId){syncStatus="error";updateSyncStatusUI();}
     });
   };
+
+  const PRODUCT_MEDIA_DB="liveos-product-photos-v1";
+  let productPhotoDBPromise=null, productPhotoUrls=new Map();
+  let reminderWatcher=null, reminderCheckBusy=false, reminderRegistration=null;
+
+  function openProductPhotoDB(){
+    if(!("indexedDB" in window))return Promise.reject(new Error("Dein Browser unterstützt den lokalen Fotospeicher nicht."));
+    if(!productPhotoDBPromise){
+      productPhotoDBPromise=new Promise((resolve,reject)=>{
+        const request=indexedDB.open(PRODUCT_MEDIA_DB,1);
+        request.onupgradeneeded=()=>{
+          const db=request.result;
+          if(!db.objectStoreNames.contains("photos"))db.createObjectStore("photos",{keyPath:"key"});
+        };
+        request.onsuccess=()=>resolve(request.result);
+        request.onerror=()=>reject(request.error||new Error("Der lokale Fotospeicher konnte nicht geöffnet werden."));
+      });
+    }
+    return productPhotoDBPromise;
+  }
+  function productPhotoKey(productId,userId){return String(userId||"guest")+":"+String(productId);}
+  async function storeProductPhoto(productId,blob){
+    const db=await openProductPhotoDB(),key=productPhotoKey(productId,currentUser&&currentUser.id);
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction("photos","readwrite");
+      tx.objectStore("photos").put({key,userId:currentUser.id,productId,blob,mimeType:blob.type,size:blob.size,updatedAt:Date.now()});
+      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error("Foto konnte nicht gespeichert werden."));
+    });
+    try{if(navigator.storage&&navigator.storage.persist)await navigator.storage.persist();}catch(_){}
+  }
+  async function loadProductPhoto(productId,userId){
+    const db=await openProductPhotoDB();
+    return await new Promise((resolve,reject)=>{
+      const request=db.transaction("photos","readonly").objectStore("photos").get(productPhotoKey(productId,userId));
+      request.onsuccess=()=>resolve(request.result&&request.result.blob?request.result.blob:null);
+      request.onerror=()=>reject(request.error||new Error("Foto konnte nicht geladen werden."));
+    });
+  }
+  async function deleteProductPhoto(productId,userId){
+    const db=await openProductPhotoDB();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction("photos","readwrite");tx.objectStore("photos").delete(productPhotoKey(productId,userId));
+      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error("Foto konnte nicht gelöscht werden."));
+    });
+  }
+  async function clearProductPhotosForUser(userId){
+    const db=await openProductPhotoDB();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction("photos","readwrite"),store=tx.objectStore("photos"),request=store.openCursor();
+      request.onsuccess=()=>{
+        const cursor=request.result;if(!cursor)return;
+        if(cursor.value&&cursor.value.userId===userId)cursor.delete();
+        cursor.continue();
+      };
+      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error("Fotos konnten nicht gelöscht werden."));
+    });
+  }
+  async function compressProductPhoto(file){
+    if(!file||!file.type||!file.type.startsWith("image/"))throw new Error("Bitte wähle eine Bilddatei aus.");
+    if(file.size>12*1024*1024)throw new Error("Das Originalfoto darf höchstens 12 MB groß sein.");
+    let source=null,sourceUrl=null;
+    try{
+      if("createImageBitmap" in window)source=await createImageBitmap(file);
+      else{
+        sourceUrl=URL.createObjectURL(file);
+        source=await new Promise((resolve,reject)=>{
+          const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error("Das Bild konnte nicht gelesen werden."));img.src=sourceUrl;
+        });
+      }
+      const width=source.width||source.naturalWidth,height=source.height||source.naturalHeight;
+      if(!width||!height)throw new Error("Das Bild hat kein gültiges Format.");
+      const scale=Math.min(1,1100/Math.max(width,height)),canvas=document.createElement("canvas");
+      canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));
+      const context=canvas.getContext("2d",{alpha:false});
+      if(!context)throw new Error("Bildkomprimierung ist auf diesem Gerät nicht verfügbar.");
+      context.drawImage(source,0,0,canvas.width,canvas.height);
+      let blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/webp",0.72));
+      if(!blob)blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.72));
+      if(!blob)throw new Error("Das Foto konnte nicht komprimiert werden.");
+      return blob;
+    }finally{
+      if(source&&typeof source.close==="function")source.close();
+      if(sourceUrl)URL.revokeObjectURL(sourceUrl);
+    }
+  }
+  async function refreshProductPhotoImages(){
+    productPhotoUrls.forEach(url=>URL.revokeObjectURL(url));productPhotoUrls.clear();
+    if(!currentUser||activePage!=="shopping")return;
+    const userId=currentUser.id,nodes=Array.from(document.querySelectorAll("[data-product-photo]"));
+    for(const node of nodes){
+      try{
+        const blob=await loadProductPhoto(node.dataset.productPhoto,userId);
+        if(!blob||!node.isConnected||!currentUser||currentUser.id!==userId)continue;
+        const url=URL.createObjectURL(blob);productPhotoUrls.set(node.dataset.productPhoto,url);
+        node.style.backgroundImage='url("'+url+'")';node.style.backgroundSize="cover";node.style.backgroundPosition="center";
+        const placeholder=node.querySelector("[data-photo-placeholder]");if(placeholder)placeholder.classList.add("hidden");
+      }catch(error){console.warn("LiveOS local photo could not be displayed.",error);}
+    }
+  }
+
   const pageMeta=()=>{
     const titles={
       home:["Home","Dein persönlicher Überblick"],
