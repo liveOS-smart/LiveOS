@@ -945,16 +945,24 @@
 </head>
 <body class="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 text-slate-900">
 <div id="root"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.min.js"></script>
 <script>
 (() => {
   "use strict";
   const STORAGE_KEY="liveos-allinone-v1";
   const TUTORIAL_KEY="liveos-intro-seen-v1";
+  const SUPABASE_URL="https://hwopliqwicmzpeuvzvlk.supabase.co";
+  const SUPABASE_PUBLISHABLE_KEY="sb_publishable_6K8t-SMi_1j7ZwMqzr3MNw_HB3K55eY";
+  const supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{
+    auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true}
+  });
   const root=document.getElementById("root");
+  let currentUser=null,authReady=false,authMode="login",authMessage="",authMessageType="info",authBusy=false,authEmailDraft="";
   const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
   const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],lists:[],notes:[]});
-  const loadState=()=>{try{return Object.assign(defaultState(),JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"));}catch(_){return defaultState();}};
-  let data=loadState();
+  const dataStorageKey=()=>currentUser?STORAGE_KEY+":user:"+currentUser.id:STORAGE_KEY+":guest";
+  const loadState=()=>{try{return Object.assign(defaultState(),JSON.parse(localStorage.getItem(dataStorageKey())||"{}"));}catch(_){return defaultState();}};
+  let data=defaultState();
   let activePage=localStorage.getItem("liveos-active-page-v1")||"home";
   const pages=["home","finances","calendar","lists","more"];
   if(!pages.includes(activePage)) activePage="home";
@@ -969,7 +977,7 @@
   const monthExpenses=()=>data.expenses.filter(e=>monthKey(e.date)===currentMonth());
   const monthTotal=()=>monthExpenses().reduce((s,e)=>s+Number(e.amount||0),0);
   const remaining=()=>Number(data.monthlyIncome||0)-monthTotal();
-  const save=()=>localStorage.setItem(STORAGE_KEY,JSON.stringify(data));
+  const save=()=>localStorage.setItem(dataStorageKey(),JSON.stringify(data));
   const pageMeta=()=>{
     const titles={
       home:["Home","Dein persönlicher Überblick"],
@@ -993,13 +1001,93 @@
     const translate=i=>i===0?"translateX(0)":"translateX(calc("+(i*100)+"% + "+(i*4)+"px))";
     return '<span aria-hidden="true" class="ua-nav-indicator '+(navFrom!==null&&from!==index?"ua-nav-indicator-moving":"")+'" style="width:calc((100% - 16px) / 5);--ua-nav-from:'+translate(from)+';--ua-nav-to:'+translate(index)+';transform:'+translate(index)+'"></span>';
   }
+
+  function authRedirectUrl(){
+    return window.location.origin+window.location.pathname+window.location.search;
+  }
+  function authLoadingHTML(){
+    return '<main class="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 via-white to-slate-50 px-5"><section class="w-full max-w-sm rounded-[2rem] border border-slate-200 bg-white p-7 text-center shadow-xl"><img src="./assets/liveos-icon.svg?v=liveos-v2" alt="LiveOS" class="mx-auto h-16 w-16 rounded-2xl bg-slate-900 p-2"><h1 class="mt-4 text-2xl font-extrabold text-slate-900">LiveOS</h1><p class="mt-2 text-sm text-slate-500">Dein persönlicher Alltag wird vorbereitet …</p><div class="mx-auto mt-5 h-1.5 w-24 overflow-hidden rounded-full bg-slate-100"><div class="h-full w-1/2 animate-pulse rounded-full bg-slate-700"></div></div></section></main>';
+  }
+  function authHTML(){
+    const update=authMode==="update-password";
+    const signup=authMode==="signup";
+    const forgot=authMode==="forgot";
+    let title="Willkommen zurück";
+    let subtitle="Melde dich an, um deinen persönlichen LiveOS-Bereich zu öffnen.";
+    if(signup){title="Dein LiveOS-Konto";subtitle="Erstelle dein Konto und behalte deinen Alltag an einem Ort im Blick.";}
+    if(forgot){title="Passwort zurücksetzen";subtitle="Wir senden dir einen Link an deine E-Mail-Adresse.";}
+    if(update){title="Neues Passwort";subtitle="Lege ein neues Passwort für dein LiveOS-Konto fest.";}
+    let fields="";
+    if(signup){
+      fields+='<label class="block text-xs font-semibold text-slate-600" for="auth-display-name">Dein Name (optional)</label><input id="auth-display-name" class="liveos-field mt-1" name="display_name" maxlength="80" autocomplete="name" placeholder="Wie sollen wir dich nennen?">';
+    }
+    if(!update){
+      fields+='<label class="mt-3 block text-xs font-semibold text-slate-600" for="auth-email">E-Mail-Adresse</label><input id="auth-email" class="liveos-field mt-1" type="email" name="email" required maxlength="254" autocomplete="email" value="'+esc(authEmailDraft)+'" placeholder="name@beispiel.de">';
+    }
+    if(!forgot&&!update){
+      fields+='<label class="mt-3 block text-xs font-semibold text-slate-600" for="auth-password">Passwort</label><input id="auth-password" class="liveos-field mt-1" type="password" name="password" required minlength="8" autocomplete="'+(signup?'new-password':'current-password')+'" placeholder="Mindestens 8 Zeichen">';
+    }
+    if(update){
+      fields+='<label class="block text-xs font-semibold text-slate-600" for="auth-new-password">Neues Passwort</label><input id="auth-new-password" class="liveos-field mt-1" type="password" name="new_password" required minlength="8" autocomplete="new-password" placeholder="Mindestens 8 Zeichen"><label class="mt-3 block text-xs font-semibold text-slate-600" for="auth-confirm-password">Passwort wiederholen</label><input id="auth-confirm-password" class="liveos-field mt-1" type="password" name="confirm_password" required minlength="8" autocomplete="new-password" placeholder="Neues Passwort wiederholen">';
+    }
+    let primary=update?"Passwort speichern":forgot?"Reset-Link senden":signup?"Konto erstellen":"Anmelden";
+    let switchLinks="";
+    if(authMode==="login"){
+      switchLinks='<div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs"><button type="button" data-action="auth-mode" data-mode="forgot" class="font-semibold text-slate-600 underline decoration-slate-300 underline-offset-4">Passwort vergessen?</button><button type="button" data-action="auth-mode" data-mode="signup" class="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4">Neues Konto erstellen</button></div>';
+    }else if(!update){
+      switchLinks='<div class="mt-4 text-center text-xs text-slate-500">Bereits ein Konto? <button type="button" data-action="auth-mode" data-mode="login" class="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4">Anmelden</button></div>';
+    }
+    const message=authMessage?'<div id="auth-message" role="status" aria-live="polite" class="mt-4 rounded-2xl px-3 py-3 text-xs leading-5 '+(authMessageType==="error"?"bg-rose-50 text-rose-700":"bg-slate-100 text-slate-700")+'">'+esc(authMessage)+'</div>':"";
+    const note=signup?'<p class="mt-4 text-center text-[11px] leading-5 text-slate-400">Nach der Registrierung kann eine Bestätigung per E-Mail erforderlich sein.</p>':forgot?'<p class="mt-4 text-center text-[11px] leading-5 text-slate-400">Aus Sicherheitsgründen verrät LiveOS nicht, ob diese E-Mail-Adresse registriert ist.</p>':"";
+    return '<main class="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 via-white to-slate-50 px-4 py-8"><section class="w-full max-w-md rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl sm:p-7"><div class="text-center"><img src="./assets/liveos-icon.svg?v=liveos-v2" alt="LiveOS" class="mx-auto h-16 w-16 rounded-2xl bg-slate-900 p-2 shadow-lg"><div class="mt-4 text-xs font-bold uppercase tracking-[.22em] text-slate-400">LIVEOS</div><h1 class="mt-2 text-2xl font-extrabold tracking-tight text-slate-900">'+title+'</h1><p class="mx-auto mt-2 max-w-xs text-sm leading-6 text-slate-500">'+subtitle+'</p></div>'+message+'<form id="auth-form" class="mt-6">'+fields+'<button type="submit" class="liveos-primary mt-5 w-full justify-center" '+(authBusy?'disabled':'')+'>'+(authBusy?'<span class="animate-pulse">Einen Moment …</span>':primary)+'</button></form>'+switchLinks+note+'<div class="mt-6 border-t border-slate-100 pt-4 text-center text-[11px] text-slate-400">Deine persönlichen Daten bleiben deinem Konto zugeordnet.</div></section></main>';
+  }
+  function applyAuthSession(session){
+    const nextUser=session&&session.user?session.user:null;
+    const oldId=currentUser?currentUser.id:null;
+    const nextId=nextUser?nextUser.id:null;
+    if(oldId!==nextId){
+      currentUser=nextUser;
+      data=currentUser?loadState():defaultState();
+    }
+    authReady=true;
+    render();
+  }
+  async function signOutLiveOS(){
+    const result=await supabaseClient.auth.signOut();
+    if(result.error)window.alert("Abmelden nicht möglich: "+result.error.message);
+  }
+  supabaseClient.auth.onAuthStateChange((event,session)=>{
+    if(event==="PASSWORD_RECOVERY"){
+      authMode="update-password";
+      authMessage="Wähle jetzt dein neues Passwort.";
+      authMessageType="info";
+    }
+    if(event==="SIGNED_OUT"){
+      authMode="login";
+      authMessage="";
+    }
+    applyAuthSession(session);
+  });
+  (async function initializeAuth(){
+    try{
+      const result=await supabaseClient.auth.getSession();
+      if(result.error)throw result.error;
+      applyAuthSession(result.data.session);
+    }catch(error){
+      authReady=true;
+      authMessage="Die Anmeldung konnte gerade nicht geladen werden. Bitte prüfe deine Internetverbindung und lade LiveOS erneut.";
+      authMessageType="error";
+      render();
+    }
+  })();
+
   function topbar(){
     const meta=pageMeta();
     return '<header class="mb-6 rounded-[2rem] bg-slate-900 p-4 text-white shadow-xl md:p-5">'+
       '<div class="flex items-center justify-between gap-4"><div class="flex min-w-0 items-center gap-3">'+
       '<img src="./assets/liveos-icon.svg?v=liveos-v2" alt="LiveOS" class="h-12 w-12 shrink-0 rounded-2xl bg-white object-contain p-1 shadow-lg ring-1 ring-white/20">'+
       '<div class="min-w-0"><div class="mb-1 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">'+icon("sparkles","h-3.5 w-3.5")+' LIVEOS</div><h1 class="truncate text-2xl font-bold tracking-tight md:text-3xl">'+meta[0]+'</h1><p class="mt-1 text-sm text-white/65">'+meta[1]+'</p></div></div>'+
-      '<button type="button" data-action="bank-info" aria-label="Bankverbindung" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white/90 backdrop-blur-md transition hover:bg-white/15">'+icon("shield-check","h-5 w-5")+'</button></div>'+
+      '<div class="flex shrink-0 items-center gap-2"><button type="button" data-action="bank-info" aria-label="Bankverbindung" class="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white/90 backdrop-blur-md transition hover:bg-white/15">'+icon("shield-check","h-5 w-5")+'</button><button type="button" data-action="sign-out" aria-label="Abmelden" title="Abmelden" class="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white/90 backdrop-blur-md transition hover:bg-white/15">'+icon("log-out","h-5 w-5")+'</button></div></div>'+
       '<div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/10 p-3"><div><div class="text-xs text-white/60">Diesen Monat verfügbar</div><div class="mt-0.5 text-xl font-bold">'+money(remaining())+'</div></div><div class="text-right"><div class="text-xs text-white/60">Monatsausgaben</div><div class="mt-0.5 text-sm font-semibold">'+money(monthTotal())+'</div></div></div></header>';
   }
   function emptyState(title,text,iconName){
@@ -1100,7 +1188,9 @@
     return '<div class="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 text-slate-900"><div class="mx-auto w-full max-w-6xl px-4 pb-32 pt-5 md:px-6 md:pb-32 md:pt-6">'+topbar()+'<main id="ua-page-content" class="'+(animatePage?"ua-page-enter":"")+'"><div class="space-y-6">'+body+'</div></main></div><nav class="glass-nav fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2"><div class="ua-nav-track mx-auto grid max-w-xl grid-cols-5 gap-1">'+navIndicator()+navItem("home","house","Home")+navItem("finances","wallet","Finanzen")+navItem("calendar","calendar-days","Kalender")+navItem("lists","list-checks","Listen")+navItem("more","layout-grid","Mehr")+'</div></nav></div>';
   }
   function render(){
-    root.innerHTML=appHTML()+(bankModalOpen?bankModal():"")+(tutorialOpen?onboardingHTML():"");
+    if(!authReady)root.innerHTML=authLoadingHTML();
+    else if(!currentUser||authMode==="update-password")root.innerHTML=authHTML();
+    else root.innerHTML=appHTML()+(bankModalOpen?bankModal():"")+(tutorialOpen?onboardingHTML():"");
     if(window.lucide&&typeof window.lucide.createIcons==="function")window.lucide.createIcons();
     animatePage=false;navFrom=null;
   }
@@ -1108,6 +1198,8 @@
   document.addEventListener("click",function(event){
     const el=event.target.closest("[data-action]");if(!el)return;
     const action=el.dataset.action;
+    if(action==="auth-mode"){authMode=el.dataset.mode||"login";authMessage="";authMessageType="info";render();return;}
+    if(action==="sign-out"){signOutLiveOS();return;}
     if(action==="navigate"||action==="quick"){
       const page=el.dataset.page;if(pages.includes(page)){if(page!==activePage){navFrom=activePage;animatePage=true;}activePage=page;localStorage.setItem("liveos-active-page-v1",page);render();}
       return;
@@ -1141,8 +1233,58 @@
       if(confirm("Möchtest du wirklich alle lokal gespeicherten LiveOS-Daten löschen?")){data=defaultState();save();render();}return;
     }
   });
-  document.addEventListener("submit",function(event){
-    const form=event.target;if(!form||!form.id)return;event.preventDefault();const fd=new FormData(form);
+  document.addEventListener("submit",async function(event){
+    const form=event.target;if(!form||!form.id)return;
+    if(form.id==="auth-form"){
+      event.preventDefault();
+      if(authBusy)return;
+      const fd=new FormData(form);
+      const email=String(fd.get("email")||"").trim().toLowerCase();
+      authEmailDraft=email;
+      authBusy=true;authMessage="";authMessageType="info";render();
+      try{
+        if(authMode==="signup"){
+          const password=String(fd.get("password")||"");
+          const displayName=String(fd.get("display_name")||"").trim().slice(0,80);
+          if(password.length<8)throw new Error("Bitte verwende mindestens 8 Zeichen für dein Passwort.");
+          const result=await supabaseClient.auth.signUp({
+            email,password,
+            options:{data:{display_name:displayName},emailRedirectTo:authRedirectUrl()}
+          });
+          if(result.error)throw result.error;
+          if(result.data.session){
+            authMode="login";authMessage="Dein Konto wurde erstellt und du bist angemeldet.";
+          }else{
+            authMode="login";authMessage="Fast geschafft! Bitte öffne den Bestätigungslink in deiner E-Mail und melde dich danach an.";
+          }
+        }else if(authMode==="forgot"){
+          const result=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:authRedirectUrl()});
+          if(result.error)throw result.error;
+          authMode="login";authMessage="Falls ein Konto zu dieser Adresse gehört, erhältst du eine E-Mail mit einem Link zum Zurücksetzen des Passworts.";
+        }else if(authMode==="update-password"){
+          const password=String(fd.get("new_password")||"");
+          const confirmPassword=String(fd.get("confirm_password")||"");
+          if(password.length<8)throw new Error("Bitte verwende mindestens 8 Zeichen für dein neues Passwort.");
+          if(password!==confirmPassword)throw new Error("Die beiden Passwörter stimmen nicht überein.");
+          const result=await supabaseClient.auth.updateUser({password});
+          if(result.error)throw result.error;
+          authMode="login";authMessage="Dein Passwort wurde geändert.";
+        }else{
+          const password=String(fd.get("password")||"");
+          const result=await supabaseClient.auth.signInWithPassword({email,password});
+          if(result.error)throw result.error;
+          applyAuthSession(result.data.session);
+        }
+      }catch(error){
+        authMessage=error&&error.message?error.message:"Das hat leider nicht funktioniert. Bitte versuche es erneut.";
+        authMessageType="error";
+      }finally{
+        authBusy=false;
+        render();
+      }
+      return;
+    }
+    event.preventDefault();const fd=new FormData(form);
     if(form.id==="salary-form"){
       const salary=Number(fd.get("salary"));if(Number.isFinite(salary)&&salary>=0){data.monthlyIncome=salary;save();render();}return;
     }
