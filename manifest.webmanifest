@@ -1,13 +1,13 @@
 {
   "name": "LiveOS – Mach dir dein Leben einfach.",
   "short_name": "LiveOS",
-  "description": "Finanzen, Kalender, Listen und Notizen an einem Ort.",
+  "description": "Finanzen, Kalender, Erinnerungen, Einkaufen und Notizen an einem Ort.",
   "lang": "de-DE",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#30639b",
+  "theme_color": "#0F172A",
   "icons": [
     {
       "src": "./assets/liveos-icon.svg?v=liveos-v2",
