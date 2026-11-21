@@ -1120,10 +1120,17 @@
     return date.getFullYear()+"-"+pad(date.getMonth()+1)+"-"+pad(date.getDate())+"T"+pad(date.getHours())+":"+pad(date.getMinutes());
   }
   function nextReminderDate(value,repeat){
-    const date=new Date(value);
-    if(repeat==="daily")date.setDate(date.getDate()+1);
-    else if(repeat==="weekly")date.setDate(date.getDate()+7);
-    else if(repeat==="monthly")date.setMonth(date.getMonth()+1);
+    const date=new Date(value),now=Date.now(),originalDay=date.getDate();
+    const advance=()=>{
+      if(repeat==="daily")date.setDate(date.getDate()+1);
+      else if(repeat==="weekly")date.setDate(date.getDate()+7);
+      else if(repeat==="monthly"){
+        date.setDate(1);date.setMonth(date.getMonth()+1);
+        const lastDay=new Date(date.getFullYear(),date.getMonth()+1,0).getDate();
+        date.setDate(Math.min(originalDay,lastDay));
+      }
+    };
+    do{advance();}while(date.getTime()<=now);
     return date.toISOString();
   }
   async function ensureReminderServiceWorker(){
