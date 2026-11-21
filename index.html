@@ -958,10 +958,12 @@
   });
   const root=document.getElementById("root");
   let currentUser=null,authReady=false,authMode="login",authMessage="",authMessageType="info",authBusy=false,authEmailDraft="";
+  let syncQueue=Promise.resolve(),syncStatus="idle",realtimeChannel=null,authHydrationToken=0;
   const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
   const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],lists:[],notes:[]});
   const dataStorageKey=()=>currentUser?STORAGE_KEY+":user:"+currentUser.id:STORAGE_KEY+":guest";
-  const loadState=()=>{try{return Object.assign(defaultState(),JSON.parse(localStorage.getItem(dataStorageKey())||"{}"));}catch(_){return defaultState();}};
+  const normalizeState=(value)=>{const base=defaultState();if(!value||typeof value!=="object"||Array.isArray(value))return base;return Object.assign(base,value,{expenses:Array.isArray(value.expenses)?value.expenses:[],events:Array.isArray(value.events)?value.events:[],tasks:Array.isArray(value.tasks)?value.tasks:[],lists:Array.isArray(value.lists)?value.lists:[],notes:Array.isArray(value.notes)?value.notes:[]});};
+  const loadState=()=>{try{return normalizeState(JSON.parse(localStorage.getItem(dataStorageKey())||"{}"));}catch(_){return defaultState();}};
   let data=defaultState();
   let activePage=localStorage.getItem("liveos-active-page-v1")||"home";
   const pages=["home","finances","calendar","lists","more"];
@@ -977,7 +979,25 @@
   const monthExpenses=()=>data.expenses.filter(e=>monthKey(e.date)===currentMonth());
   const monthTotal=()=>monthExpenses().reduce((s,e)=>s+Number(e.amount||0),0);
   const remaining=()=>Number(data.monthlyIncome||0)-monthTotal();
-  const save=()=>localStorage.setItem(dataStorageKey(),JSON.stringify(data));
+  const save=()=>{
+    const snapshot=JSON.stringify(data);
+    try{localStorage.setItem(dataStorageKey(),snapshot);}catch(error){console.warn("LiveOS local cache could not be updated.",error);}
+    const userId=currentUser?currentUser.id:null;
+    if(!userId)return;
+    syncStatus="syncing";updateSyncStatusUI();
+    syncQueue=syncQueue.catch(()=>{}).then(async()=>{
+      if(!currentUser||currentUser.id!==userId)return;
+      const sessionResult=await supabaseClient.auth.getSession();
+      if(sessionResult.error)throw sessionResult.error;
+      if(!sessionResult.data.session||sessionResult.data.session.user.id!==userId)return;
+      const result=await supabaseClient.rpc("liveos_sync_app_state",{p_state:JSON.parse(snapshot)});
+      if(result.error)throw result.error;
+      if(currentUser&&currentUser.id===userId){syncStatus="saved";updateSyncStatusUI();}
+    }).catch(error=>{
+      console.error("LiveOS cloud sync failed.",error);
+      if(currentUser&&currentUser.id===userId){syncStatus="error";updateSyncStatusUI();}
+    });
+  };
   const pageMeta=()=>{
     const titles={
       home:["Home","Dein persönlicher Überblick"],
