@@ -1061,16 +1061,113 @@
     const note=signup?'<p class="mt-4 text-center text-[11px] leading-5 text-slate-400">Nach der Registrierung kann eine Bestätigung per E-Mail erforderlich sein.</p>':forgot?'<p class="mt-4 text-center text-[11px] leading-5 text-slate-400">Aus Sicherheitsgründen verrät LiveOS nicht, ob diese E-Mail-Adresse registriert ist.</p>':"";
     return '<main class="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 via-white to-slate-50 px-4 py-8"><section class="w-full max-w-md rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl sm:p-7"><div class="text-center"><img src="./assets/liveos-icon.svg?v=liveos-v2" alt="LiveOS" class="mx-auto h-16 w-16 rounded-2xl bg-slate-900 p-2 shadow-lg"><div class="mt-4 text-xs font-bold uppercase tracking-[.22em] text-slate-400">LIVEOS</div><h1 class="mt-2 text-2xl font-extrabold tracking-tight text-slate-900">'+title+'</h1><p class="mx-auto mt-2 max-w-xs text-sm leading-6 text-slate-500">'+subtitle+'</p></div>'+message+'<form id="auth-form" class="mt-6">'+fields+'<button type="submit" class="liveos-primary mt-5 w-full justify-center" '+(authBusy?'disabled':'')+'>'+(authBusy?'<span class="animate-pulse">Einen Moment …</span>':primary)+'</button></form>'+switchLinks+note+'<div class="mt-6 border-t border-slate-100 pt-4 text-center text-[11px] text-slate-400">Deine persönlichen Daten bleiben deinem Konto zugeordnet.</div></section></main>';
   }
+  function syncStatusLabel(){
+    return syncStatus==="syncing"?"Wird in LiveOS gespeichert …":
+      syncStatus==="saved"?"Mit deinem LiveOS-Konto synchronisiert":
+      syncStatus==="error"?"Synchronisierung fehlgeschlagen – Änderungen bleiben lokal gesichert":
+      syncStatus==="loading"?"LiveOS-Daten werden geladen …":"Cloud-Synchronisierung bereit";
+  }
+  function updateSyncStatusUI(){
+    const node=document.getElementById("liveos-sync-status");
+    if(node)node.textContent=syncStatusLabel();
+  }
+  function stopRealtimeSync(){
+    if(realtimeChannel){
+      supabaseClient.removeChannel(realtimeChannel);
+      realtimeChannel=null;
+    }
+  }
+  function startRealtimeSync(userId){
+    stopRealtimeSync();
+    realtimeChannel=supabaseClient.channel("liveos-app-state-"+userId)
+      .on("postgres_changes",{
+        event:"*",schema:"public",table:"liveos_app_states",filter:"user_id=eq."+userId
+      },payload=>{
+        if(!currentUser||currentUser.id!==userId||syncStatus==="syncing")return;
+        const remoteState=payload&&payload.new?payload.new.state:null;
+        if(!remoteState||typeof remoteState!=="object")return;
+        const normalized=normalizeState(remoteState);
+        if(JSON.stringify(normalized)===JSON.stringify(data))return;
+        data=normalized;
+        try{localStorage.setItem(dataStorageKey(),JSON.stringify(data));}catch(error){console.warn("LiveOS cache update failed.",error);}
+        render();
+      })
+      .subscribe(status=>{
+        if(status==="CHANNEL_ERROR"||status==="TIMED_OUT")console.warn("LiveOS realtime channel status:",status);
+      });
+  }
+  async function hydrateCloudState(userId,token){
+    try{
+      const loaded=await supabaseClient.rpc("liveos_load_app_state");
+      if(loaded.error)throw loaded.error;
+      if(token!==authHydrationToken||!currentUser||currentUser.id!==userId)return;
+      const response=loaded.data||{};
+      if(response.initialized&&response.state&&typeof response.state==="object"){
+        data=normalizeState(response.state);
+        try{localStorage.setItem(dataStorageKey(),JSON.stringify(data));}catch(error){console.warn("LiveOS cache update failed.",error);}
+      }else{
+        // First login: import the previous local-only data once, then keep the account isolated.
+        let raw=null,legacyKey=null;
+        const accountKey=STORAGE_KEY+":user:"+userId;
+        raw=localStorage.getItem(accountKey);
+        if(!raw){
+          raw=localStorage.getItem(STORAGE_KEY);
+          if(raw)legacyKey=STORAGE_KEY;
+        }
+        if(!raw){
+          raw=localStorage.getItem(STORAGE_KEY+":guest");
+          if(raw)legacyKey=STORAGE_KEY+":guest";
+        }
+        try{data=raw?normalizeState(JSON.parse(raw)):defaultState();}catch(_){data=defaultState();}
+        const migrated=await supabaseClient.rpc("liveos_sync_app_state",{p_state:data});
+        if(migrated.error)throw migrated.error;
+        if(token!==authHydrationToken||!currentUser||currentUser.id!==userId)return;
+        try{localStorage.setItem(accountKey,JSON.stringify(data));}catch(error){console.warn("LiveOS cache update failed.",error);}
+        if(legacyKey)localStorage.removeItem(legacyKey);
+      }
+      if(token!==authHydrationToken||!currentUser||currentUser.id!==userId)return;
+      syncStatus="saved";
+      startRealtimeSync(userId);
+    }catch(error){
+      console.error("LiveOS cloud data could not be loaded.",error);
+      if(token===authHydrationToken&&currentUser&&currentUser.id===userId){
+        data=loadState();
+        syncStatus="error";
+      }
+    }finally{
+      if(token===authHydrationToken&&currentUser&&currentUser.id===userId){
+        authReady=true;
+        render();
+      }
+    }
+  }
   function applyAuthSession(session){
     const nextUser=session&&session.user?session.user:null;
     const oldId=currentUser?currentUser.id:null;
     const nextId=nextUser?nextUser.id:null;
-    if(oldId!==nextId){
-      currentUser=nextUser;
-      data=currentUser?loadState():defaultState();
+    if(oldId===nextId){
+      if(!authReady||authMode==="update-password"){
+        authReady=true;
+        render();
+      }
+      return;
     }
-    authReady=true;
+    authHydrationToken++;
+    stopRealtimeSync();
+    currentUser=nextUser;
+    if(!currentUser){
+      data=defaultState();
+      syncStatus="idle";
+      authReady=true;
+      render();
+      return;
+    }
+    data=defaultState();
+    authReady=false;
+    syncStatus="loading";
     render();
+    const token=authHydrationToken;
+    Promise.resolve().then(()=>hydrateCloudState(nextId,token));
   }
   async function signOutLiveOS(){
     const result=await supabaseClient.auth.signOut();
