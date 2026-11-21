@@ -1112,6 +1112,82 @@
     };
     return titles[activePage]||titles.home;
   };
+
+  function defaultReminderLocal(){
+    const date=new Date(Date.now()+60*60*1000);
+    date.setMinutes(Math.ceil(date.getMinutes()/15)*15,0,0);
+    const pad=n=>String(n).padStart(2,"0");
+    return date.getFullYear()+"-"+pad(date.getMonth()+1)+"-"+pad(date.getDate())+"T"+pad(date.getHours())+":"+pad(date.getMinutes());
+  }
+  function nextReminderDate(value,repeat){
+    const date=new Date(value);
+    if(repeat==="daily")date.setDate(date.getDate()+1);
+    else if(repeat==="weekly")date.setDate(date.getDate()+7);
+    else if(repeat==="monthly")date.setMonth(date.getMonth()+1);
+    return date.toISOString();
+  }
+  async function ensureReminderServiceWorker(){
+    if(!("serviceWorker" in navigator))throw new Error("Dieser Browser unterstützt keine Systembenachrichtigungen.");
+    if(!reminderRegistration)reminderRegistration=await navigator.serviceWorker.register("./sw.js");
+    return await navigator.serviceWorker.ready;
+  }
+  async function enableLiveOSNotifications(){
+    if(!("Notification" in window)){alert("Dieser Browser unterstützt keine Systembenachrichtigungen.");return;}
+    if(Notification.permission==="denied"){
+      alert("Benachrichtigungen sind für LiveOS in den Browser-Einstellungen blockiert. Du kannst sie dort wieder erlauben.");return;
+    }
+    try{
+      const permission=Notification.permission==="granted"?"granted":await Notification.requestPermission();
+      if(permission!=="granted"){alert("Benachrichtigungen wurden nicht freigegeben. Deine Erinnerungen bleiben trotzdem gespeichert.");return;}
+      const registration=await ensureReminderServiceWorker();
+      data.notificationsEnabled=true;save();
+      await registration.showNotification("LiveOS ist bereit",{
+        body:"Systemhinweise für deine Erinnerungen sind eingeschaltet.",
+        icon:"./assets/liveos-icon.png",tag:"liveos-notifications-ready"
+      });
+      startReminderWatcher();render();
+    }catch(error){alert(error&&error.message?error.message:"Benachrichtigungen konnten nicht eingerichtet werden.");}
+  }
+  async function checkDueReminders(){
+    if(reminderCheckBusy||!currentUser||!("Notification" in window)||Notification.permission!=="granted")return;
+    const now=Date.now();
+    const due=(data.reminders||[]).filter(r=>r.enabled!==false&&!r.sentAt&&Number.isFinite(Date.parse(r.scheduledAt))&&Date.parse(r.scheduledAt)<=now);
+    if(!due.length)return;
+    reminderCheckBusy=true;
+    try{
+      const registration=await ensureReminderServiceWorker(),userId=currentUser.id;
+      let changed=false;
+      for(const reminder of due){
+        if(!currentUser||currentUser.id!==userId)break;
+        await registration.showNotification("LiveOS · "+reminder.title,{
+          body:reminder.message||"Du hast eine Erinnerung.",
+          icon:"./assets/liveos-icon.png",
+          tag:"liveos-reminder-"+reminder.id,
+          data:{url:"./"}
+        });
+        if(reminder.repeat&&reminder.repeat!=="none"){
+          reminder.scheduledAt=nextReminderDate(reminder.scheduledAt,reminder.repeat);reminder.sentAt=null;
+        }else{
+          reminder.enabled=false;reminder.sentAt=new Date().toISOString();
+        }
+        changed=true;
+      }
+      if(changed&&currentUser&&currentUser.id===userId){save();render();}
+    }catch(error){console.warn("LiveOS reminder could not be displayed.",error);}
+    finally{reminderCheckBusy=false;}
+  }
+  function startReminderWatcher(){
+    if(reminderWatcher||!currentUser)return;
+    reminderWatcher=setInterval(checkDueReminders,15000);
+    checkDueReminders();
+  }
+  function reminderNotificationsLabel(){
+    if(!("Notification" in window))return "Systemhinweise werden von diesem Browser nicht unterstützt.";
+    if(Notification.permission==="granted")return "Benachrichtigungen sind freigegeben.";
+    if(Notification.permission==="denied")return "Im Browser blockiert – in den Website-Einstellungen wieder erlauben.";
+    return "Noch nicht aktiviert. LiveOS fragt erst nach, wenn du auf Aktivieren tippst.";
+  }
+
   function navIndex(page){return pages.indexOf(page);}
   function navItem(page,iconName,label){
     const active=activePage===page;
