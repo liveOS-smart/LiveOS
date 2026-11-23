@@ -999,6 +999,29 @@
     .liveos-boot-mini-icon { display:flex; width:32px; height:32px; align-items:center; justify-content:center; border-radius:11px; background:rgba(255,255,255,.09); color:#bfdbfe; }
     @media (prefers-reduced-motion:reduce) { .liveos-boot-screen,.liveos-boot-orbit,.liveos-boot-card,.liveos-boot-card::after,.liveos-boot-logo,.liveos-boot-meter span,.liveos-boot-dots span { animation:none !important; } }
 
+    @keyframes liveos-feedback-enter { 0% { opacity:0; transform:translate(-50%,-14px) scale(.94); filter:blur(4px); } 70% { opacity:1; transform:translate(-50%,2px) scale(1.015); filter:blur(0); } 100% { opacity:1; transform:translate(-50%,0) scale(1); } }
+    @keyframes liveos-feedback-ring { 0% { transform:scale(.75); opacity:.55; } 100% { transform:scale(1.75); opacity:0; } }
+    @keyframes liveos-feedback-check { 0% { transform:scale(.35) rotate(-20deg); opacity:0; } 65% { transform:scale(1.13) rotate(5deg); opacity:1; } 100% { transform:scale(1) rotate(0); opacity:1; } }
+    @keyframes liveos-feedback-bell { 0%,100% { transform:rotate(0); } 12%,36%,60% { transform:rotate(11deg); } 24%,48% { transform:rotate(-11deg); } 72% { transform:rotate(5deg); } 84% { transform:rotate(-4deg); } }
+    @keyframes liveos-feedback-puzzle-left { 0% { transform:translateX(-16px) rotate(-13deg); opacity:0; } 65% { transform:translateX(3px) rotate(3deg); opacity:1; } 100% { transform:translateX(0) rotate(0); opacity:1; } }
+    @keyframes liveos-feedback-puzzle-right { 0% { transform:translateX(16px) rotate(13deg); opacity:0; } 65% { transform:translateX(-3px) rotate(-3deg); opacity:1; } 100% { transform:translateX(0) rotate(0); opacity:1; } }
+    .liveos-feedback-wrap { position:fixed; z-index:230; top:max(14px,env(safe-area-inset-top)); left:50%; width:min(calc(100vw - 28px),430px); pointer-events:none; animation:liveos-feedback-enter .48s cubic-bezier(.2,.8,.2,1) both; }
+    .liveos-feedback-card { display:flex; align-items:center; gap:13px; border:1px solid rgba(255,255,255,.82); border-radius:22px; background:rgba(255,255,255,.94); padding:13px 15px; box-shadow:0 18px 55px rgba(15,23,42,.17),0 3px 12px rgba(15,23,42,.06); backdrop-filter:blur(22px); }
+    .liveos-feedback-icon { position:relative; display:flex; width:46px; height:46px; flex:0 0 46px; align-items:center; justify-content:center; overflow:visible; border-radius:16px; background:linear-gradient(145deg,#eff6ff,#dbeafe); color:#1d4ed8; }
+    .liveos-feedback-icon::after { content:""; position:absolute; inset:0; border:1px solid rgba(59,130,246,.4); border-radius:16px; animation:liveos-feedback-ring 1.8s ease-out infinite; }
+    .liveos-feedback-icon > i { animation:liveos-feedback-check .58s cubic-bezier(.2,.8,.2,1) both; }
+    .liveos-feedback-reminder .liveos-feedback-icon > i { animation:liveos-feedback-bell 1.15s ease-in-out both; transform-origin:50% 15%; }
+    .liveos-feedback-plugin-pieces { display:flex; align-items:center; justify-content:center; width:46px; height:46px; }
+    .liveos-feedback-plugin-pieces i:first-child { margin-right:-8px; animation:liveos-feedback-puzzle-left .65s cubic-bezier(.2,.8,.2,1) both; }
+    .liveos-feedback-plugin-pieces i:last-child { margin-left:-8px; animation:liveos-feedback-puzzle-right .65s cubic-bezier(.2,.8,.2,1) both; }
+    .liveos-feedback-copy { min-width:0; flex:1; }
+    .liveos-feedback-copy strong { display:block; color:#0f172a; font-size:13px; font-weight:800; line-height:1.35; }
+    .liveos-feedback-copy span { display:block; margin-top:3px; overflow-wrap:anywhere; color:#64748b; font-size:11px; line-height:1.4; }
+    .liveos-feedback-progress { height:2px; overflow:hidden; border-radius:999px; background:#dbeafe; margin-top:10px; }
+    .liveos-feedback-progress span { display:block; width:100%; height:100%; transform-origin:left; background:#3b82f6; animation:liveos-feedback-timeout 4.2s linear both; }
+    @keyframes liveos-feedback-timeout { from { transform:scaleX(1); } to { transform:scaleX(0); } }
+    @media (prefers-reduced-motion:reduce) { .liveos-feedback-wrap,.liveos-feedback-icon::after,.liveos-feedback-icon > i,.liveos-feedback-plugin-pieces i,.liveos-feedback-progress span { animation:none !important; } }
+
 
   </style>
 </head>
@@ -1029,6 +1052,7 @@
   if(!pages.includes(activePage)) activePage="home";
   let tutorialOpen=localStorage.getItem(TUTORIAL_KEY)!=="true";
   let tutorialStep=0,tutorialListId=null,bankModalOpen=false,navFrom=null,animatePage=true;
+  let liveOSFeedback=null,liveOSFeedbackTimer=null,liveOSFeedbackSequence=0;
   const money=(value)=>new Intl.NumberFormat("de-DE",{style:"currency",currency:"EUR"}).format(Number(value||0));
   const esc=(value)=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
   const icon=(name,cls="h-5 w-5")=>'<i data-lucide="'+name+'" class="'+cls+'"></i>';
@@ -1238,7 +1262,11 @@
         }
         changed=true;
       }
-      if(changed&&currentUser&&currentUser.id===userId){save();render();}
+      if(changed&&currentUser&&currentUser.id===userId){
+        const firstDue=due[0];
+        showLiveOSFeedback("reminder",due.length>1?due.length+" neue Erinnerungen":"Erinnerung ist fällig",firstDue.title+(due.length>1?" und "+(due.length-1)+" weitere":""),6500);
+        save();render();
+      }
     }catch(error){console.warn("LiveOS reminder could not be displayed.",error);}
     finally{reminderCheckBusy=false;}
   }
@@ -1600,10 +1628,30 @@
     const title=pageMeta()[0];
     return '<div class="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 text-slate-900"><div class="mx-auto w-full max-w-6xl px-4 pb-32 pt-5 md:px-6 md:pb-32 md:pt-6">'+topbar()+'<main id="ua-page-content" class="'+(animatePage?"ua-page-enter":"")+'"><div class="space-y-6">'+body+'</div></main></div><nav class="glass-nav fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2"><div class="ua-nav-track mx-auto grid max-w-2xl grid-cols-6 gap-1">'+navIndicator()+navItem("home","house","Home")+navItem("finances","wallet","Finanzen")+navItem("calendar","calendar-days","Kalender")+navItem("lists","list-checks","Listen")+navItem("shopping","shopping-bag","Einkauf")+navItem("more","layout-grid","Mehr")+'</div></nav></div>';
   }
+
+  function showLiveOSFeedback(kind,title,message,duration){
+    const id=++liveOSFeedbackSequence;
+    liveOSFeedback={id,kind,title,message};
+    if(liveOSFeedbackTimer)clearTimeout(liveOSFeedbackTimer);
+    liveOSFeedbackTimer=setTimeout(()=>{
+      if(!liveOSFeedback||liveOSFeedback.id!==id)return;
+      liveOSFeedback=null;liveOSFeedbackTimer=null;
+      if(currentUser&&authReady&&!tutorialOpen)render();
+    },duration||4200);
+  }
+  function liveOSFeedbackHTML(){
+    if(!liveOSFeedback||tutorialOpen||!currentUser)return "";
+    const item=liveOSFeedback;
+    const icons={success:"check-circle-2",reminder:"bell-ring",finance:"wallet-cards",calendar:"calendar-check",plugin:"puzzle"};
+    const artwork=item.kind==="plugin"
+      ?'<span class="liveos-feedback-plugin-pieces">'+icon("puzzle","h-5 w-5")+icon("puzzle","h-5 w-5")+'</span>'
+      :icon(icons[item.kind]||"check-circle-2","h-6 w-6");
+    return '<div class="liveos-feedback-wrap liveos-feedback-'+esc(item.kind||"success")+'" role="status" aria-live="polite"><div class="liveos-feedback-card"><div class="liveos-feedback-icon">'+artwork+'</div><div class="liveos-feedback-copy"><strong>'+esc(item.title)+'</strong><span>'+esc(item.message||"")+'</span></div></div><div class="liveos-feedback-progress"><span></span></div></div>';
+  }
   function render(){
     if(!authReady)root.innerHTML=appLoadingHTML();
     else if(!currentUser||authMode==="update-password")root.innerHTML=authHTML();
-    else root.innerHTML=appHTML()+(bankModalOpen?bankModal():"")+(tutorialOpen?onboardingHTML():"");
+    else root.innerHTML=appHTML()+(bankModalOpen?bankModal():"")+(tutorialOpen?onboardingHTML():"")+liveOSFeedbackHTML();
     if(window.lucide&&typeof window.lucide.createIcons==="function")window.lucide.createIcons();
     if(currentUser&&tutorialOpen&&tutorialStep===3){const target=document.getElementById("tutorial-shopping-input");if(target){target.scrollIntoView({behavior:"smooth",block:"center"});target.focus({preventScroll:true});}}
     refreshProductPhotoImages();
@@ -1663,14 +1711,14 @@
     if(action==="delete-expense"){data.expenses=data.expenses.filter(x=>x.id!==el.dataset.id);save();render();return;}
     if(action==="delete-event"){data.events=data.events.filter(x=>x.id!==el.dataset.id);save();render();return;}
     if(action==="toggle-task"){
-      const task=data.tasks.find(x=>x.id===el.dataset.id);if(task){task.done=!task.done;save();render();}return;
+      const task=data.tasks.find(x=>x.id===el.dataset.id);if(task){task.done=!task.done;if(task.done)showLiveOSFeedback("success","Aufgabe erledigt",task.title);save();render();}return;
     }
     if(action==="delete-task"){data.tasks=data.tasks.filter(x=>x.id!==el.dataset.id);save();render();return;}
     if(action==="delete-note"){data.notes=data.notes.filter(x=>x.id!==el.dataset.id);save();render();return;}
     if(action==="delete-list"){data.lists=(data.lists||[]).filter(x=>x.id!==el.dataset.id);save();render();return;}
     if(action==="toggle-list-item"){
       const list=(data.lists||[]).find(x=>x.id===el.dataset.listId),item=list?.items?.find(x=>x.id===el.dataset.itemId);
-      if(item){item.done=!item.done;save();render();}return;
+      if(item){item.done=!item.done;if(item.done)showLiveOSFeedback("success","Eintrag erledigt",item.title);save();render();}return;
     }
     if(action==="delete-list-item"){
       const list=(data.lists||[]).find(x=>x.id===el.dataset.listId);
@@ -1748,6 +1796,7 @@
         scheduledAt:scheduledAt.toISOString(),repeat:String(fd.get("repeat")||"none"),
         enabled:true,sentAt:null,createdAt:Date.now()
       });
+      showLiveOSFeedback("success","Erinnerung gespeichert",title+" · "+new Intl.DateTimeFormat("de-DE",{dateStyle:"medium",timeStyle:"short"}).format(scheduledAt));
       save();render();return;
     }
     if(form.id==="product-memory-form"){
@@ -1768,6 +1817,7 @@
         note:String(fd.get("note")||"").trim(),
         savedAt:Date.now(),photoKey:photo&&photo.size?id:null
       });
+      showLiveOSFeedback("success","Produkt gemerkt",title);
       save();render();return;
     }
     if(form.id==="loyalty-card-form"){
@@ -1781,39 +1831,46 @@
         points:Number.isFinite(points)?points:null,
         label:String(fd.get("label")||"").trim(),createdAt:Date.now()
       });
+      showLiveOSFeedback("success","Bonusprogramm gespeichert",provider);
       save();render();return;
     }
     if(form.id==="salary-form"){
-      const salary=Number(fd.get("salary"));if(Number.isFinite(salary)&&salary>=0){data.monthlyIncome=salary;save();render();}return;
+      const salary=Number(fd.get("salary"));if(Number.isFinite(salary)&&salary>=0){data.monthlyIncome=salary;showLiveOSFeedback("finance","Einnahmen aktualisiert","Dein Monatsbetrag wurde übernommen.");save();render();}return;
     }
     if(form.id==="expense-form"){
       const amount=Number(fd.get("amount"));if(!Number.isFinite(amount)||amount<=0)return;
-      data.expenses.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title:String(fd.get("title")||"").trim(),amount,category:String(fd.get("category")||"Sonstiges"),date:String(fd.get("date")||todayISO())});
+      const expenseTitle=String(fd.get("title")||"").trim();
+      data.expenses.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title:expenseTitle,amount,category:String(fd.get("category")||"Sonstiges"),date:String(fd.get("date")||todayISO())});
+      showLiveOSFeedback("finance","Ausgabe gespeichert",expenseTitle||"Deine neue Ausgabe");
       save();render();return;
     }
     if(form.id==="event-form"){
       const title=String(fd.get("title")||"").trim();if(!title)return;
       data.events.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,type:String(fd.get("type")||"Termin"),date:String(fd.get("date")||todayISO()),time:String(fd.get("time")||""),note:String(fd.get("note")||"").trim()});
+      showLiveOSFeedback("calendar","Im Kalender gespeichert",title);
       save();render();return;
     }
     if(form.id==="task-form"){
       const title=String(fd.get("title")||"").trim();if(!title)return;
       data.tasks.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,due:String(fd.get("due")||""),priority:String(fd.get("priority")||"Normal"),done:false});
+      showLiveOSFeedback("success","Aufgabe hinzugefügt",title);
       save();render();return;
     }
     if(form.id==="list-form"){
       const title=String(fd.get("title")||"").trim();if(!title)return;
-      data.lists=data.lists||[];data.lists.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,items:[]});save();render();return;
+      data.lists=data.lists||[];data.lists.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,items:[]});showLiveOSFeedback("success","Liste erstellt",title);save();render();return;
     }
     if(form.id.startsWith("list-item-form-")){
       const listId=form.id.slice("list-item-form-".length),title=String(fd.get("item")||"").trim(),list=(data.lists||[]).find(x=>x.id===listId);
       if(!list||!title)return;list.items=list.items||[];list.items.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,done:false});
       const tutorialItemAdded=tutorialOpen&&tutorialStep===3&&String(listId)===String(tutorialListId);
+      if(!tutorialItemAdded)showLiveOSFeedback("success","Eintrag hinzugefügt",title);
       save();if(tutorialItemAdded){tutorialStep=4;render();return;}render();return;
     }
     if(form.id==="note-form"){
       const title=String(fd.get("title")||"").trim(),body=String(fd.get("body")||"").trim();if(!title||!body)return;
       data.notes.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,body,createdAt:Date.now()});
+      showLiveOSFeedback("success","Notiz gespeichert",title);
       save();render();return;
     }
   });
