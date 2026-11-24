@@ -1690,7 +1690,7 @@
     else if(!currentUser||authMode==="update-password")root.innerHTML=authHTML();
     else root.innerHTML=appHTML()+(bankModalOpen?bankModal():"")+(settingsOpen?settingsHTML():"")+(tutorialOpen?onboardingHTML():"")+liveOSFeedbackHTML();
     if(window.lucide&&typeof window.lucide.createIcons==="function")window.lucide.createIcons();
-    if(currentUser&&tutorialOpen&&tutorialStep===3){const target=document.getElementById("tutorial-shopping-input");if(target){target.scrollIntoView({behavior:"smooth",block:"center"});target.focus({preventScroll:true});}}
+    if(currentUser&&tutorialOpen&&tutorialStep===7){const target=document.getElementById("tutorial-shopping-input");if(target){target.scrollIntoView({behavior:"smooth",block:"center"});target.focus({preventScroll:true});}}
     refreshProductPhotoImages();
     if(currentUser)startReminderWatcher();
     animatePage=false;navFrom=null;
@@ -1794,13 +1794,16 @@
       catch(error){window.alert(error&&error.message?error.message:"Dein Passwort konnte nicht geändert werden.");}return;
     }
     if(form.id==="tutorial-income-form"){
+      event.preventDefault();
       const amount=Number(new FormData(form).get("amount"));if(!Number.isFinite(amount)||amount<0)return;data.monthlyIncome=amount;save();setTutorialStep(3);return;
     }
     if(form.id==="tutorial-event-form"){
+      event.preventDefault();
       const fd=new FormData(form),title=String(fd.get("title")||"").trim(),date=String(fd.get("date")||"");if(!title||!date)return;
       data.events.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,type:"Termin",date,time:String(fd.get("time")||""),note:""});save();setTutorialStep(4);return;
     }
     if(form.id==="tutorial-task-form"){
+      event.preventDefault();
       const fd=new FormData(form),title=String(fd.get("title")||"").trim();if(!title)return;
       data.tasks.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title,due:String(fd.get("due")||""),priority:"Normal",done:false});save();setTutorialStep(5);return;
     }
