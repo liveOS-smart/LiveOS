@@ -10,22 +10,24 @@
   "theme_color": "#0F172A",
   "icons": [
     {
-      "src": "./assets/liveos-icon-192.png?v=liveos-v3",
+      "src": "./assets/liveos-icon-192.png?v=liveos-v4",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./assets/liveos-icon-512.png?v=liveos-v3",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./assets/liveos-icon.svg?v=liveos-v3",
+      "src": "./assets/liveos-icon.svg?v=liveos-v4",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "id": "./",
+  "display_override": [
+    "standalone"
+  ],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "prefer_related_applications": false
 }
