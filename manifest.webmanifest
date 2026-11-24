@@ -17,9 +17,15 @@
     },
     {
       "src": "./assets/liveos-icon.svg?v=liveos-v4",
-      "sizes": "any",
+      "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/liveos-icon.svg?v=liveos-v4",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ],
   "id": "./",
