@@ -1056,9 +1056,26 @@
   let currentUser=null,authReady=false,authMode="login",authMessage="",authMessageType="info",authBusy=false,authEmailDraft="";
   let syncQueue=Promise.resolve(),syncStatus="idle",realtimeChannel=null,authHydrationToken=0;
   const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
-  const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],lists:[],notes:[],reminders:[],productMemories:[],loyaltyCards:[]});
+  const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],lists:[],notes:[],reminders:[],productMemories:[],loyaltyCards:[],enabledPlugins:[],offers:[]});
   const dataStorageKey=()=>currentUser?STORAGE_KEY+":user:"+currentUser.id:STORAGE_KEY+":guest";
-  const normalizeState=(value)=>{const base=defaultState();if(!value||typeof value!=="object"||Array.isArray(value))return base;return Object.assign(base,value,{expenses:Array.isArray(value.expenses)?value.expenses:[],events:Array.isArray(value.events)?value.events:[],tasks:Array.isArray(value.tasks)?value.tasks:[],lists:Array.isArray(value.lists)?value.lists:[],notes:Array.isArray(value.notes)?value.notes:[],reminders:Array.isArray(value.reminders)?value.reminders:[],productMemories:Array.isArray(value.productMemories)?value.productMemories:[],loyaltyCards:Array.isArray(value.loyaltyCards)?value.loyaltyCards:[]});};
+  const normalizeState=(value)=>{
+    const base=defaultState();
+    if(!value||typeof value!=="object"||Array.isArray(value))return base;
+    const loyaltyCards=Array.isArray(value.loyaltyCards)?value.loyaltyCards:[];
+    const legacyPluginIds=[...new Set(loyaltyCards.map(card=>card.provider==="PAYBACK"?"payback":card.provider==="Lidl Plus"?"lidlplus":card.provider==="REWE Bonus"?"rewebonus":null).filter(Boolean))];
+    return Object.assign(base,value,{
+      expenses:Array.isArray(value.expenses)?value.expenses:[],
+      events:Array.isArray(value.events)?value.events:[],
+      tasks:Array.isArray(value.tasks)?value.tasks:[],
+      lists:Array.isArray(value.lists)?value.lists:[],
+      notes:Array.isArray(value.notes)?value.notes:[],
+      reminders:Array.isArray(value.reminders)?value.reminders:[],
+      productMemories:Array.isArray(value.productMemories)?value.productMemories:[],
+      loyaltyCards,
+      enabledPlugins:Array.isArray(value.enabledPlugins)?value.enabledPlugins:legacyPluginIds,
+      offers:Array.isArray(value.offers)?value.offers:[]
+    });
+  };
   const loadState=()=>{try{return normalizeState(JSON.parse(localStorage.getItem(dataStorageKey())||"{}"));}catch(_){return defaultState();}};
   let data=defaultState();
   let activePage=localStorage.getItem("liveos-active-page-v1")||"home";
@@ -1544,18 +1561,45 @@
   }
 
   const shoppingPluginCatalog=[
-    {name:"PAYBACK",subtitle:"°Punkte, Coupons und Partner",url:"https://www.payback.de/app",description:"Die offizielle App zeigt deinen Punktestand, Coupons und die digitale Karte."},
-    {name:"Lidl Plus",subtitle:"Lidl Punkte, Coupons und Angebote",url:"https://www.lidl.de/c/lidl-plus/s10007388",description:"Digitale Kundenkarte, Lidl Punkte, Rabatte und Prospekte."},
-    {name:"REWE Bonus",subtitle:"Bonus-Guthaben und Aktionen",url:"https://www.rewe.de/bonus/",description:"Bonus-Guthaben, wöchentliche Aktionen und Coupons in der REWE App."}
+    {id:"payback",name:"PAYBACK",subtitle:"Punkte, Coupons und Partner",description:"LiveOS verwaltet deine manuell notierten Kartendaten und deinen letzten Punktestand. Persönliche Coupons und die digitale Karte öffnest du sicher in der PAYBACK App.",url:"https://www.payback.de/app",offersUrl:"https://www.payback.de/coupons",offersLabel:"PAYBACK Coupons"},
+    {id:"lidlplus",name:"Lidl Plus",subtitle:"Lidl Punkte, Coupons und Prospekte",description:"Speichere deinen zuletzt gesehenen Punktestand in LiveOS. Persönliche Coupons, digitale Kundenkarte und Kassenbons bleiben in der offiziellen Lidl Plus App.",url:"https://www.lidl.de/c/lidl-plus/s10007388",offersUrl:"https://www.lidl.de/c/online-prospekte/s10005610",offersLabel:"Lidl Prospekte"},
+    {id:"rewebonus",name:"REWE Bonus",subtitle:"Bonus-Guthaben und Aktionen",description:"Halte dein letztes REWE Bonus-Guthaben in LiveOS fest. Persönliche Coupons und dein aktueller Kontostand werden in der REWE App angezeigt.",url:"https://www.rewe.de/service/app/",offersUrl:"https://www.rewe.de/angebote/nationale-angebote/",offersLabel:"REWE Wochenangebote"},
+    {id:"offers",name:"Angebote & Prospekte",subtitle:"Deine Deal-Sammlung für den nächsten Einkauf",description:"Speichere Rabatte, Prospektfunde und Bonusaktionen mit Ablaufdatum. Füge passende Produkte mit einem Tipp zu deiner LiveOS-Einkaufsliste hinzu.",internal:true}
   ];
   function pluginDirectoryHTML(){
-    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("puzzle","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Plugin-Zentrale</h2><p class="mt-1 text-xs leading-5 text-slate-500">Bündele später offizielle Dienste und deine Einkaufs- und Bonusprogramme an einem Ort.</p></div></div><div class="mt-4 space-y-3">'+shoppingPluginCatalog.map(plugin=>'<article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div class="min-w-0"><h3 class="text-sm font-bold text-slate-800">'+esc(plugin.name)+'</h3><p class="mt-0.5 text-xs font-semibold text-slate-500">'+esc(plugin.subtitle)+'</p></div><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200">Verbindung in Vorbereitung</span></div><p class="mt-2 text-xs leading-5 text-slate-600">'+esc(plugin.description)+'</p><a class="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 underline decoration-slate-300 underline-offset-4" href="'+esc(plugin.url)+'" target="_blank" rel="noopener noreferrer">Offizielle App ansehen '+icon("external-link","h-3.5 w-3.5")+'</a></article>').join("")+'</div><p class="mt-3 text-[11px] leading-5 text-slate-400">LiveOS fragt niemals nach deinen Passwörtern für andere Apps. Eine automatische Kontoverknüpfung gibt es erst mit einer offiziellen API oder OAuth-Freigabe.</p></section>';
+    const enabled=new Set(Array.isArray(data.enabledPlugins)?data.enabledPlugins:[]);
+    const plugins=shoppingPluginCatalog.map(plugin=>{
+      const active=enabled.has(plugin.id);
+      const officialLinks=plugin.url
+        ?'<div class="mt-3 flex flex-wrap gap-x-4 gap-y-2"><a class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 underline decoration-slate-300 underline-offset-4" href="'+esc(plugin.url)+'" target="_blank" rel="noopener noreferrer">Offizielle App öffnen '+icon("external-link","h-3.5 w-3.5")+'</a><a class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 underline decoration-slate-300 underline-offset-4" href="'+esc(plugin.offersUrl)+'" target="_blank" rel="noopener noreferrer">'+esc(plugin.offersLabel)+' '+icon("external-link","h-3.5 w-3.5")+'</a></div>'
+        :"";
+      return '<article class="rounded-2xl border '+(active?"border-blue-200 bg-blue-50/50":"border-slate-200 bg-slate-50")+' p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div class="min-w-0 flex-1"><div class="flex items-center gap-2"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl '+(active?"bg-blue-100 text-blue-700":"bg-white text-slate-500")+'">'+icon(plugin.id==="payback"?"wallet-cards":plugin.id==="lidlplus"?"shopping-bag":plugin.id==="rewebonus"?"badge-euro":"tags","h-4 w-4")+'</span><div class="min-w-0"><h3 class="text-sm font-bold text-slate-800">'+esc(plugin.name)+'</h3><p class="mt-0.5 text-xs font-semibold text-slate-500">'+esc(plugin.subtitle)+'</p></div></div></div><span class="rounded-full '+(active?"bg-blue-100 text-blue-800":"bg-white text-slate-500 ring-1 ring-slate-200")+' px-2.5 py-1 text-[10px] font-semibold">'+(active?"In LiveOS aktiv":"Noch nicht hinzugefügt")+'</span></div><p class="mt-3 text-xs leading-5 text-slate-600">'+esc(plugin.description)+'</p>'+officialLinks+'<div class="mt-3 flex justify-end"><button type="button" data-action="toggle-plugin" data-id="'+esc(plugin.id)+'" class="'+(active?"liveos-secondary":"liveos-primary")+'">'+(active?icon("check","h-4 w-4")+" Aktiv · Entfernen":icon("puzzle","h-4 w-4")+" Zu LiveOS hinzufügen")+'</button></div></article>';
+    }).join("");
+    const hasBonus=enabled.has("payback")||enabled.has("lidlplus")||enabled.has("rewebonus");
+    const modules=(enabled.has("offers")?offersHTML():"")+(hasBonus?loyaltyCardsHTML():"");
+    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("puzzle","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Plugin-Zentrale</h2><p class="mt-1 text-xs leading-5 text-slate-500">Aktiviere nur die Einkaufs- und Bonusmodule, die du wirklich nutzt. Deine Auswahl und deine Einträge werden mit LiveOS gespeichert.</p></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">'+enabled.size+' aktiv</span></div><div class="mt-4 space-y-3">'+plugins+'</div><div class="mt-4 rounded-2xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-500">Wichtig: Diese Module verbinden sich nicht mit deinen fremden Konten. LiveOS speichert deine eigenen Notizen und öffnet für persönliche Coupons, digitale Karten und Kontostände die offiziellen Anbieter-Apps. Gib dein Passwort niemals in LiveOS ein.</div></section>'+modules;
   }
   function loyaltyCardsHTML(){
-    const cards=data.loyaltyCards||[];
-    const form='<form id="loyalty-card-form" class="grid gap-3 sm:grid-cols-2"><select class="liveos-field" name="provider"><option>PAYBACK</option><option>Lidl Plus</option><option>REWE Bonus</option><option>Andere</option></select><input class="liveos-field" name="cardNumber" maxlength="80" placeholder="Kartennummer (optional)"><input class="liveos-field" name="points" type="number" min="0" step="0.01" placeholder="Punkte / Guthaben (optional)"><input class="liveos-field" name="label" maxlength="80" placeholder="Eigene Bezeichnung (optional)"><button class="liveos-primary sm:col-span-2" type="submit">'+icon("plus","h-4 w-4")+' Programm manuell speichern</button></form>';
-    const list=cards.length?'<div class="mt-4 grid gap-2 sm:grid-cols-2">'+cards.map(card=>'<article class="rounded-2xl bg-slate-50 p-3"><div class="flex items-start gap-2"><div class="min-w-0 flex-1"><div class="text-sm font-bold text-slate-800">'+esc(card.provider)+'</div><div class="mt-0.5 text-xs text-slate-500">'+esc(card.label||"Manuell eingetragen")+'</div></div><button type="button" data-action="delete-loyalty-card" data-id="'+esc(card.id)+'" class="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-rose-600" aria-label="Programm entfernen">'+icon("trash-2","h-4 w-4")+'</button></div>'+(card.cardNumber?'<div class="mt-2 text-xs text-slate-500">Karte · •••• '+esc(String(card.cardNumber).slice(-4))+'</div>':"")+(card.points!==null&&card.points!==undefined&&card.points!==""?'<div class="mt-1 text-sm font-bold text-slate-800">'+esc(card.points)+' '+(card.provider==="REWE Bonus"?"€ Guthaben":"Punkte")+'</div>':"")+'</article>').join("")+'</div>':emptyState("Noch keine Bonusprogramme gespeichert","Trage Karten oder Punktestände ein, die du im Blick behalten möchtest.","wallet-cards");
-    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("wallet-cards","h-5 w-5")+'</div><div><h2 class="text-base font-bold text-slate-900">Meine Bonusprogramme</h2><p class="mt-1 text-xs text-slate-500">Punktestände und Kartendaten manuell an einem Ort notieren.</p></div></div><div class="mt-4">'+form+'</div>'+list+'</section>';
+    const cards=Array.isArray(data.loyaltyCards)?data.loyaltyCards:[];
+    const form='<form id="loyalty-card-form" class="grid gap-3 sm:grid-cols-2"><select class="liveos-field" name="provider"><option>PAYBACK</option><option>Lidl Plus</option><option>REWE Bonus</option><option>Andere</option></select><input class="liveos-field" name="cardNumber" maxlength="80" placeholder="Kartennummer (optional)"><input class="liveos-field" name="points" type="number" min="0" step="0.01" placeholder="Aktueller Punktestand / € Guthaben"><input class="liveos-field" name="label" maxlength="80" placeholder="Eigene Bezeichnung (optional)"><button class="liveos-primary sm:col-span-2" type="submit">'+icon("plus","h-4 w-4")+' Bonuskarte speichern</button></form>';
+    const rows=cards.length?'<div class="mt-4 grid gap-3 sm:grid-cols-2">'+cards.map(card=>{
+      const unit=card.provider==="REWE Bonus"?"€ Guthaben":"Punkte";
+      const balance=card.points!==null&&card.points!==undefined&&card.points!==""?String(card.points):"—";
+      return '<article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex items-start gap-2"><div class="min-w-0 flex-1"><div class="text-sm font-bold text-slate-800">'+esc(card.provider)+'</div><div class="mt-0.5 text-xs text-slate-500">'+esc(card.label||"Deine Karte")+'</div></div><button type="button" data-action="delete-loyalty-card" data-id="'+esc(card.id)+'" class="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-rose-600" aria-label="Karte entfernen">'+icon("trash-2","h-4 w-4")+'</button></div>'+(card.cardNumber?'<div class="mt-2 text-xs text-slate-500">Kartennummer · •••• '+esc(String(card.cardNumber).slice(-4))+'</div>':"")+'<div class="mt-3 flex items-end justify-between gap-2"><div><div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Letzter Stand</div><div class="text-lg font-extrabold text-slate-900">'+esc(balance)+' <span class="text-xs font-semibold text-slate-500">'+unit+'</span></div><div class="text-[10px] text-slate-400">'+(card.updatedAt?"Aktualisiert "+esc(fmtDate(todayISO())):"Manuell notiert")+'</div></div></div><form id="loyalty-points-form-'+esc(card.id)+'" class="mt-3 flex gap-2"><input class="liveos-field min-w-0 flex-1 py-2 text-sm" name="points" type="number" min="0" step="0.01" value="'+(card.points!==null&&card.points!==undefined&&card.points!==""?esc(card.points):"")+'" placeholder="Neuer Stand"><button class="liveos-secondary shrink-0 px-3 py-2 text-xs" type="submit">Stand speichern</button></form></article>';
+    }).join("")+'</div>':emptyState("Noch keine Bonuskarten","Füge eine PAYBACK-, Lidl-Plus- oder REWE-Bonuskarte hinzu und notiere deinen letzten Punktestand.","wallet-cards");
+    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("wallet-cards","h-5 w-5")+'</div><div><h2 class="text-base font-bold text-slate-900">Meine Bonuskarten</h2><p class="mt-1 text-xs leading-5 text-slate-500">Kartendaten und den letzten selbst geprüften Punktestand an einem Ort behalten.</p></div></div><div class="mt-4">'+form+'</div>'+rows+'</section>';
+  }
+  function offersHTML(){
+    const offers=(Array.isArray(data.offers)?data.offers:[]).slice().sort((a,b)=>{
+      const aExpired=a.validUntil&&a.validUntil<todayISO()?1:0,bExpired=b.validUntil&&b.validUntil<todayISO()?1:0;
+      return aExpired-bExpired||(a.validUntil||"9999-12-31").localeCompare(b.validUntil||"9999-12-31")||(b.createdAt||0)-(a.createdAt||0);
+    });
+    const offerForm='<form id="offer-form" class="grid gap-3 sm:grid-cols-2"><select class="liveos-field" name="shop"><option>PAYBACK</option><option>Lidl</option><option>REWE</option><option>Andere</option></select><input class="liveos-field" name="title" maxlength="100" placeholder="Angebot, Coupon oder Produkt" required><input class="liveos-field" name="benefit" maxlength="60" placeholder="Vorteil, z. B. 20 % oder 2 €"><input class="liveos-field" name="product" maxlength="100" placeholder="Produkt für Einkaufsliste (optional)"><label class="block text-xs font-semibold text-slate-600">Gültig bis (optional)<input class="liveos-field mt-1" name="validUntil" type="date" min="'+todayISO()+'"></label><label class="block text-xs font-semibold text-slate-600">Link zum Angebot (optional)<input class="liveos-field mt-1" name="url" type="url" maxlength="500" placeholder="https://…"></label><textarea class="liveos-field sm:col-span-2" name="note" maxlength="240" rows="2" placeholder="Notiz: Filiale, Bedingungen oder was du beachten musst (optional)"></textarea><button class="liveos-primary sm:col-span-2" type="submit">'+icon("bookmark-plus","h-4 w-4")+' Angebot merken</button></form>';
+    const list=offers.length?'<div class="mt-4 space-y-2">'+offers.map(offer=>{
+      const expired=!!(offer.validUntil&&offer.validUntil<todayISO());
+      return '<article class="rounded-2xl border '+(expired?"border-slate-200 bg-slate-50/70 opacity-70":"border-blue-100 bg-blue-50/40")+' p-3"><div class="flex items-start gap-2"><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">'+esc(offer.shop||"Andere")+'</span>'+(expired?'<span class="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">Abgelaufen</span>':offer.validUntil?'<span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-700">Bis '+esc(fmtDate(offer.validUntil))+'</span>':"")+'</div><h3 class="mt-1 text-sm font-bold text-slate-900">'+esc(offer.title)+'</h3>'+(offer.benefit?'<div class="mt-1 text-sm font-extrabold text-blue-700">'+esc(offer.benefit)+'</div>':"")+(offer.note?'<p class="mt-1 text-xs leading-5 text-slate-600">'+esc(offer.note)+'</p>':"")+'</div><button type="button" data-action="delete-offer" data-id="'+esc(offer.id)+'" aria-label="Angebot löschen" class="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-rose-600">'+icon("trash-2","h-4 w-4")+'</button></div><div class="mt-3 flex flex-wrap gap-2">'+(offer.product?'<button type="button" data-action="offer-to-shopping" data-id="'+esc(offer.id)+'" class="liveos-secondary px-3 py-2 text-xs">'+icon("list-plus","h-3.5 w-3.5")+' Zur Einkaufsliste</button>':"")+(offer.url?'<a href="'+esc(offer.url)+'" target="_blank" rel="noopener noreferrer" class="liveos-secondary px-3 py-2 text-xs">'+icon("external-link","h-3.5 w-3.5")+' Angebot öffnen</a>':"")+'</div></article>';
+    }).join("")+'</div>':emptyState("Noch keine Angebote gespeichert","Speichere einen Prospektfund oder Coupon. Du kannst ein Ablaufdatum und den Original-Link hinterlegen.","tags");
+    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("tags","h-5 w-5")+'</div><div><h2 class="text-base font-bold text-slate-900">Meine Angebote</h2><p class="mt-1 text-xs leading-5 text-slate-500">Deine Deal-Sammlung – mit Gültigkeit, Original-Link und Verknüpfung zur Einkaufsliste.</p></div></div><div class="mt-4">'+offerForm+'</div>'+list+'</section>';
   }
   function remindersHTML(){
     const permissionLabel=reminderNotificationsLabel();
@@ -1578,7 +1622,7 @@
     const form='<form id="product-memory-form" class="grid gap-3 sm:grid-cols-2"><input class="liveos-field sm:col-span-2" name="title" maxlength="120" placeholder="Wie heißt das Produkt?" required><input class="liveos-field" name="brand" maxlength="80" placeholder="Marke (optional)"><input class="liveos-field" name="store" maxlength="80" placeholder="Wo gekauft? (optional)"><textarea class="liveos-field sm:col-span-2" name="note" maxlength="300" rows="2" placeholder="Was gefällt dir daran? Geschmack, Sorte, Hinweise …"></textarea><label class="block text-xs font-semibold text-slate-600 sm:col-span-2">Produktfoto aufnehmen oder auswählen<input class="liveos-field mt-1" name="photo" type="file" accept="image/*" capture="environment"></label><button class="liveos-primary sm:col-span-2" type="submit">'+icon("bookmark-plus","h-4 w-4")+' Produkt merken</button></form>';
     const products=(data.productMemories||[]).slice().sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
     const cards=products.length?'<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">'+products.map(product=>'<article class="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div data-product-photo="'+esc(product.id)+'" class="relative flex h-36 items-center justify-center bg-slate-100 bg-cover bg-center"><div data-photo-placeholder class="flex flex-col items-center gap-2 text-slate-400">'+icon("camera","h-7 w-7")+'<span class="text-[10px] font-semibold">Foto nur auf diesem Gerät</span></div></div><div class="p-3"><div class="text-sm font-bold text-slate-800">'+esc(product.title)+'</div>'+(product.brand?'<div class="mt-0.5 text-xs text-slate-500">'+esc(product.brand)+'</div>':"")+(product.store?'<div class="mt-1 text-[11px] text-slate-400">Gekauft bei '+esc(product.store)+'</div>':"")+(product.note?'<p class="mt-2 text-xs leading-5 text-slate-600">'+esc(product.note)+'</p>':"")+'<div class="mt-3 flex items-center gap-2"><button type="button" data-action="buy-again" data-id="'+esc(product.id)+'" class="liveos-secondary flex-1 justify-center px-2 py-2 text-xs">'+icon("list-plus","h-3.5 w-3.5")+' Noch mal kaufen</button><button type="button" data-action="delete-product-memory" data-id="'+esc(product.id)+'" class="rounded-xl p-2 text-slate-400 hover:bg-slate-50 hover:text-rose-600" aria-label="Produkt löschen">'+icon("trash-2","h-4 w-4")+'</button></div></div></article>').join("")+'</div>':emptyState("Noch keine Lieblingsprodukte","Fotografiere dein Lieblingsgetränk oder einen Snack – dann findest du ihn beim nächsten Einkauf wieder.","camera");
-    return '<div class="space-y-6">'+shoppingListCard+card("Lieblingsprodukte merken","Produkte mit Foto, Marke und Einkaufsort speichern","camera",'<div class="mb-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Fotos werden verkleinert und nur auf diesem Gerät gespeichert. Namen und Notizen synchronisieren wir mit deinem LiveOS-Konto – die Bilddateien werden nicht in die Cloud hochgeladen.</div>'+form)+card("Deine Merkliste",products.length+" gespeicherte Produkte","bookmark",cards)+loyaltyCardsHTML()+pluginDirectoryHTML()+'</div>';
+    return '<div class="space-y-6">'+shoppingListCard+card("Lieblingsprodukte merken","Produkte mit Foto, Marke und Einkaufsort speichern","camera",'<div class="mb-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Fotos werden verkleinert und nur auf diesem Gerät gespeichert. Namen und Notizen synchronisieren wir mit deinem LiveOS-Konto – die Bilddateien werden nicht in die Cloud hochgeladen.</div>'+form)+card("Deine Merkliste",products.length+" gespeicherte Produkte","bookmark",cards)+pluginDirectoryHTML()+'</div>';
   }
 
   function calendarHTML(){
@@ -1753,6 +1797,32 @@
       }
       return;
     }
+    if(action==="toggle-plugin"){
+      const id=String(el.dataset.id||"");
+      if(!shoppingPluginCatalog.some(plugin=>plugin.id===id))return;
+      data.enabledPlugins=Array.isArray(data.enabledPlugins)?data.enabledPlugins:[];
+      const active=data.enabledPlugins.includes(id);
+      data.enabledPlugins=active?data.enabledPlugins.filter(x=>x!==id):[...data.enabledPlugins,id];
+      if(active)showLiveOSFeedback("success","Plugin entfernt",shoppingPluginCatalog.find(plugin=>plugin.id===id).name+" ist nicht mehr in deiner Plugin-Zentrale.");
+      else showLiveOSFeedback("plugin","Plugin hinzugefügt",shoppingPluginCatalog.find(plugin=>plugin.id===id).name+" ist jetzt in LiveOS verfügbar.");
+      save();render();return;
+    }
+    if(action==="delete-offer"){
+      data.offers=(Array.isArray(data.offers)?data.offers:[]).filter(offer=>offer.id!==el.dataset.id);save();render();return;
+    }
+    if(action==="offer-to-shopping"){
+      const offer=(Array.isArray(data.offers)?data.offers:[]).find(item=>item.id===el.dataset.id);
+      if(offer){
+        data.lists=Array.isArray(data.lists)?data.lists:[];
+        let list=data.lists.find(item=>String(item.title||"").trim().toLowerCase()==="einkauf");
+        if(!list){list={id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title:"Einkauf",items:[]};data.lists.push(list);}
+        list.items=Array.isArray(list.items)?list.items:[];
+        list.items.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title:String(offer.product||offer.title),done:false});
+        showLiveOSFeedback("success","Zur Einkaufsliste hinzugefügt",offer.product||offer.title);
+        activePage="shopping";localStorage.setItem("liveos-active-page-v1",activePage);save();render();
+      }
+      return;
+    }
     if(action==="delete-loyalty-card"){
       data.loyaltyCards=(data.loyaltyCards||[]).filter(x=>x.id!==el.dataset.id);save();render();return;
     }
@@ -1893,6 +1963,30 @@
       showLiveOSFeedback("success","Produkt gemerkt",title);
       save();render();return;
     }
+    if(form.id==="offer-form"){
+      const title=String(fd.get("title")||"").trim();if(!title)return;
+      const rawUrl=String(fd.get("url")||"").trim();let safeUrl="";
+      if(rawUrl){
+        try{const parsed=new URL(rawUrl);if(parsed.protocol!=="https:"&&parsed.protocol!=="http:")throw new Error("Bitte einen gültigen http- oder https-Link verwenden.");safeUrl=parsed.href;}
+        catch(error){window.alert(error&&error.message?error.message:"Bitte einen gültigen Angebots-Link eingeben.");return;}
+      }
+      data.offers=Array.isArray(data.offers)?data.offers:[];
+      data.offers.push({
+        id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),
+        shop:String(fd.get("shop")||"Andere"),title,benefit:String(fd.get("benefit")||"").trim(),
+        product:String(fd.get("product")||"").trim(),validUntil:String(fd.get("validUntil")||""),
+        url:safeUrl,note:String(fd.get("note")||"").trim(),createdAt:Date.now()
+      });
+      showLiveOSFeedback("success","Angebot gespeichert",title);save();render();return;
+    }
+    if(form.id.startsWith("loyalty-points-form-")){
+      const cardId=form.id.slice("loyalty-points-form-".length),card=(data.loyaltyCards||[]).find(item=>String(item.id)===cardId);
+      const rawPoints=String(fd.get("points")||"").trim();
+      if(!card||!rawPoints)return;
+      const points=Number(rawPoints);if(!Number.isFinite(points)||points<0)return;
+      card.points=points;card.updatedAt=Date.now();
+      showLiveOSFeedback("success","Punktestand aktualisiert",card.provider);save();render();return;
+    }
     if(form.id==="loyalty-card-form"){
       const provider=String(fd.get("provider")||"Andere");
       const cardNumber=String(fd.get("cardNumber")||"").trim();
@@ -1904,7 +1998,7 @@
         points:Number.isFinite(points)?points:null,
         label:String(fd.get("label")||"").trim(),createdAt:Date.now()
       });
-      showLiveOSFeedback("success","Bonusprogramm gespeichert",provider);
+      showLiveOSFeedback("success","Bonuskarte gespeichert",provider);
       save();render();return;
     }
     if(form.id==="salary-form"){
