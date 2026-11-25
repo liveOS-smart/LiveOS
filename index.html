@@ -1561,11 +1561,95 @@
     return '<div class="grid grid-cols-7 gap-1 text-center">'+["Mo","Di","Mi","Do","Fr","Sa","So"].map(x=>'<div class="py-2 text-[10px] font-bold uppercase text-slate-400">'+x+'</div>').join("")+cells+'</div>';
   }
 
+
+  function calendarEventTiming(event){
+    const date=String(event&&event.date||"");
+    if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return null;
+    const parts=date.split("-").map(Number),year=parts[0],month=parts[1],day=parts[2];
+    const time=String(event&&event.time||"").trim();
+    const timed=/^\\d{2}:\\d{2}$/.test(time);
+    const bits=timed?time.split(":").map(Number):[0,0];
+    const start=new Date(year,month-1,day,bits[0],bits[1],0,0);
+    if(!Number.isFinite(start.getTime())||start.getFullYear()!==year||start.getMonth()!==month-1||start.getDate()!==day)return null;
+    return {allDay:!timed,start,end:timed?new Date(start.getTime()+60*60*1000):new Date(year,month-1,day+1)};
+  }
+  function calendarPad(value){return String(value).padStart(2,"0");}
+  function calendarLocalDate(value){
+    return String(value.getFullYear())+calendarPad(value.getMonth()+1)+calendarPad(value.getDate());
+  }
+  function calendarLocalStamp(value){
+    return calendarLocalDate(value)+"T"+calendarPad(value.getHours())+calendarPad(value.getMinutes())+"00";
+  }
+  function calendarUtcStamp(value){
+    return value.toISOString().replace(/[-:]/g,"").replace(/\\.\\d{3}/,"");
+  }
+  function calendarIcsEscape(value){
+    return String(value||"").replace(/\\\\/g,"\\\\\\\\").replace(/\\r?\\n/g,"\\\\n").replace(/,/g,"\\\\,").replace(/;/g,"\\\\;");
+  }
+  function calendarIcsText(events){
+    const list=(Array.isArray(events)?events:[events]).filter(Boolean),lines=[
+      "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//LiveOS//Kalender//DE","CALSCALE:GREGORIAN","METHOD:PUBLISH"
+    ];
+    list.forEach((event,index)=>{
+      const timing=calendarEventTiming(event);
+      if(!timing)return;
+      const uid=(String(event.id||("event-"+index)).replace(/[^A-Za-z0-9_.-]/g,"")||("event-"+index))+"@liveos";
+      const details=[event.type||"Termin",event.note||""].filter(Boolean).join("\\n");
+      lines.push("BEGIN:VEVENT");
+      lines.push("UID:"+uid);
+      lines.push("DTSTAMP:"+calendarUtcStamp(new Date()));
+      lines.push("SUMMARY:"+calendarIcsEscape(event.title||"LiveOS-Termin"));
+      if(details)lines.push("DESCRIPTION:"+calendarIcsEscape(details));
+      if(timing.allDay){
+        lines.push("DTSTART;VALUE=DATE:"+calendarLocalDate(timing.start));
+        lines.push("DTEND;VALUE=DATE:"+calendarLocalDate(timing.end));
+      }else{
+        lines.push("DTSTART:"+calendarUtcStamp(timing.start));
+        lines.push("DTEND:"+calendarUtcStamp(timing.end));
+      }
+      lines.push("END:VEVENT");
+    });
+    lines.push("END:VCALENDAR");
+    return lines.join("\\r\\n")+"\\r\\n";
+  }
+  function downloadCalendarIcs(events){
+    const list=(Array.isArray(events)?events:[events]).filter(Boolean);
+    if(!list.length){window.alert("Es gibt noch keine Termine zum Exportieren.");return;}
+    const text=calendarIcsText(list);
+    if(!text.includes("BEGIN:VEVENT")){window.alert("Die Termine enthalten kein gültiges Datum.");return;}
+    const blob=new Blob(["\\uFEFF",text],{type:"text/calendar;charset=utf-8"});
+    const objectUrl=URL.createObjectURL(blob),anchor=document.createElement("a");
+    anchor.href=objectUrl;
+    anchor.download="LiveOS-Kalender.ics";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(()=>URL.revokeObjectURL(objectUrl),1500);
+  }
+  function googleCalendarUrl(event){
+    const timing=calendarEventTiming(event);
+    if(!timing)return "https://calendar.google.com/calendar/u/0/r";
+    const url=new URL("https://calendar.google.com/calendar/render");
+    url.searchParams.set("action","TEMPLATE");
+    url.searchParams.set("text",String(event.title||"LiveOS-Termin"));
+    url.searchParams.set("details",[event.type||"Termin",event.note||""].filter(Boolean).join("\\n"));
+    url.searchParams.set("dates",timing.allDay
+      ?calendarLocalDate(timing.start)+"/"+calendarLocalDate(timing.end)
+      :calendarLocalStamp(timing.start)+"/"+calendarLocalStamp(timing.end));
+    if(!timing.allDay)url.searchParams.set("ctz","Europe/Berlin");
+    return url.toString();
+  }
+  function calendarPluginHTML(){
+    const count=(data.events||[]).length;
+    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("calendar-sync","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Kalender-Verknüpfung</h2><p class="mt-1 text-xs leading-5 text-slate-500">Übertrage deine LiveOS-Termine in den Kalender, den du bereits nutzt.</p></div></div><div class="mt-4 grid gap-3 sm:grid-cols-3"><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-days","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Google Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Öffnet einen vorbereiteten Termin in Google Kalender. Du bestätigst ihn dort selbst.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("smartphone","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Android-Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Lädt eine .ics-Datei herunter, die du mit deiner Kalender-App öffnen kannst.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-heart","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Apple Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Nutzt dieselbe .ics-Datei, die du auf dem iPhone oder iPad in Kalender übernehmen kannst.</p></div></div><div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3"><div><div class="text-sm font-semibold text-slate-800">'+count+' LiveOS-Termine</div><p class="mt-0.5 text-xs leading-5 text-slate-500">Alle Termine gesammelt als Kalenderdatei exportieren.</p></div><button type="button" data-action="calendar-export-all" class="liveos-secondary" '+(count?"":"disabled")+'> '+icon("download","h-4 w-4")+' Kalenderdatei herunterladen</button></div><p class="mt-3 text-[11px] leading-5 text-slate-500">Hinweis: Der Export erstellt Einträge in deinem externen Kalender. LiveOS liest externe Kalender derzeit nicht aus und gleicht Änderungen noch nicht automatisch in beide Richtungen ab.</p></section>';
+  }
+
   const shoppingPluginCatalog=[
     {id:"payback",name:"PAYBACK",subtitle:"Punkte, Coupons und Partner",description:"LiveOS verwaltet deine manuell notierten Kartendaten und deinen letzten Punktestand. Persönliche Coupons und die digitale Karte öffnest du sicher in der PAYBACK App.",url:"https://www.payback.de/app",offersUrl:"https://www.payback.de/coupons",offersLabel:"PAYBACK Coupons"},
     {id:"lidlplus",name:"Lidl Plus",subtitle:"Lidl Punkte, Coupons und Prospekte",description:"Speichere deinen zuletzt gesehenen Punktestand in LiveOS. Persönliche Coupons, digitale Kundenkarte und Kassenbons bleiben in der offiziellen Lidl Plus App.",url:"https://www.lidl.de/c/lidl-plus/s10007388",offersUrl:"https://www.lidl.de/c/online-prospekte/s10005610",offersLabel:"Lidl Prospekte"},
     {id:"rewebonus",name:"REWE Bonus",subtitle:"Bonus-Guthaben und Aktionen",description:"Halte dein letztes REWE Bonus-Guthaben in LiveOS fest. Persönliche Coupons und dein aktueller Kontostand werden in der REWE App angezeigt.",url:"https://www.rewe.de/service/app/",offersUrl:"https://www.rewe.de/angebote/nationale-angebote/",offersLabel:"REWE Wochenangebote"},
-    {id:"offers",name:"Angebote & Prospekte",subtitle:"Deine Deal-Sammlung für den nächsten Einkauf",description:"Speichere Rabatte, Prospektfunde und Bonusaktionen mit Ablaufdatum. Füge passende Produkte mit einem Tipp zu deiner LiveOS-Einkaufsliste hinzu.",internal:true}
+    {id:"offers",name:"Angebote & Prospekte",subtitle:"Deine Deal-Sammlung für den nächsten Einkauf",description:"Speichere Rabatte, Prospektfunde und Bonusaktionen mit Ablaufdatum. Füge passende Produkte mit einem Tipp zu deiner LiveOS-Einkaufsliste hinzu.",internal:true},
+    {id:"calendar-link",name:"Kalender verbinden",subtitle:"Google Kalender, Android & Apple Kalender",description:"Übertrage einzelne Termine oder deinen gesamten LiveOS-Kalender in Google Kalender oder per .ics-Datei in die Kalender-App deines Geräts."}
   ];
   function pluginDirectoryHTML(){
     const enabled=new Set(Array.isArray(data.enabledPlugins)?data.enabledPlugins:[]);
@@ -1574,11 +1658,11 @@
       const officialLinks=plugin.url
         ?'<div class="mt-3 flex flex-wrap gap-x-4 gap-y-2"><a class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 underline decoration-slate-300 underline-offset-4" href="'+esc(plugin.url)+'" target="_blank" rel="noopener noreferrer">Offizielle App öffnen '+icon("external-link","h-3.5 w-3.5")+'</a><a class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 underline decoration-slate-300 underline-offset-4" href="'+esc(plugin.offersUrl)+'" target="_blank" rel="noopener noreferrer">'+esc(plugin.offersLabel)+' '+icon("external-link","h-3.5 w-3.5")+'</a></div>'
         :"";
-      return '<article class="rounded-2xl border '+(active?"border-blue-200 bg-blue-50/50":"border-slate-200 bg-slate-50")+' p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div class="min-w-0 flex-1"><div class="flex items-center gap-2"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl '+(active?"bg-blue-100 text-blue-700":"bg-white text-slate-500")+'">'+icon(plugin.id==="payback"?"wallet-cards":plugin.id==="lidlplus"?"shopping-bag":plugin.id==="rewebonus"?"badge-euro":"tags","h-4 w-4")+'</span><div class="min-w-0"><h3 class="text-sm font-bold text-slate-800">'+esc(plugin.name)+'</h3><p class="mt-0.5 text-xs font-semibold text-slate-500">'+esc(plugin.subtitle)+'</p></div></div></div><span class="rounded-full '+(active?"bg-blue-100 text-blue-800":"bg-white text-slate-500 ring-1 ring-slate-200")+' px-2.5 py-1 text-[10px] font-semibold">'+(active?"In LiveOS aktiv":"Noch nicht hinzugefügt")+'</span></div><p class="mt-3 text-xs leading-5 text-slate-600">'+esc(plugin.description)+'</p>'+officialLinks+'<div class="mt-3 flex justify-end"><button type="button" data-action="toggle-plugin" data-id="'+esc(plugin.id)+'" class="'+(active?"liveos-secondary":"liveos-primary")+'">'+(active?icon("check","h-4 w-4")+" Aktiv · Entfernen":icon("puzzle","h-4 w-4")+" Zu LiveOS hinzufügen")+'</button></div></article>';
+      return '<article class="rounded-2xl border '+(active?"border-blue-200 bg-blue-50/50":"border-slate-200 bg-slate-50")+' p-3"><div class="flex flex-wrap items-start justify-between gap-2"><div class="min-w-0 flex-1"><div class="flex items-center gap-2"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl '+(active?"bg-blue-100 text-blue-700":"bg-white text-slate-500")+'">'+icon(plugin.id==="calendar-link"?"calendar-plus":plugin.id==="payback"?"wallet-cards":plugin.id==="lidlplus"?"shopping-bag":plugin.id==="rewebonus"?"badge-euro":"tags","h-4 w-4")+'</span><div class="min-w-0"><h3 class="text-sm font-bold text-slate-800">'+esc(plugin.name)+'</h3><p class="mt-0.5 text-xs font-semibold text-slate-500">'+esc(plugin.subtitle)+'</p></div></div></div><span class="rounded-full '+(active?"bg-blue-100 text-blue-800":"bg-white text-slate-500 ring-1 ring-slate-200")+' px-2.5 py-1 text-[10px] font-semibold">'+(active?"In LiveOS aktiv":"Noch nicht hinzugefügt")+'</span></div><p class="mt-3 text-xs leading-5 text-slate-600">'+esc(plugin.description)+'</p>'+officialLinks+'<div class="mt-3 flex justify-end"><button type="button" data-action="toggle-plugin" data-id="'+esc(plugin.id)+'" class="'+(active?"liveos-secondary":"liveos-primary")+'">'+(active?icon("check","h-4 w-4")+" Aktiv · Entfernen":icon("puzzle","h-4 w-4")+" Zu LiveOS hinzufügen")+'</button></div></article>';
     }).join("");
     const hasBonus=enabled.has("payback")||enabled.has("lidlplus")||enabled.has("rewebonus");
-    const modules=(enabled.has("offers")?offersHTML():"")+(hasBonus?loyaltyCardsHTML():"");
-    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("puzzle","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Plugin-Zentrale</h2><p class="mt-1 text-xs leading-5 text-slate-500">Aktiviere nur die Einkaufs- und Bonusmodule, die du wirklich nutzt. Deine Auswahl und deine Einträge werden mit LiveOS gespeichert.</p></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">'+enabled.size+' aktiv</span></div><div class="mt-4 space-y-3">'+plugins+'</div><div class="mt-4 rounded-2xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-500">Wichtig: Diese Module verbinden sich nicht mit deinen fremden Konten. LiveOS speichert deine eigenen Notizen und öffnet für persönliche Coupons, digitale Karten und Kontostände die offiziellen Anbieter-Apps. Gib dein Passwort niemals in LiveOS ein.</div></section>'+modules;
+    const modules=(enabled.has("calendar-link")?calendarPluginHTML():"")+(enabled.has("offers")?offersHTML():"")+(hasBonus?loyaltyCardsHTML():"");
+    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("puzzle","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Plugin-Zentrale</h2><p class="mt-1 text-xs leading-5 text-slate-500">Aktiviere nur die Einkaufs- und Bonusmodule, die du wirklich nutzt. Deine Auswahl und deine Einträge werden mit LiveOS gespeichert.</p></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">'+enabled.size+' aktiv</span></div><div class="mt-4 space-y-3">'+plugins+'</div><div class="mt-4 rounded-2xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-500">Wichtig: Die Kalender-Verknüpfung überträgt Termine per Google-Kalender-Vorlage oder .ics-Datei; sie liest externe Kalender noch nicht automatisch aus. Persönliche Coupons, digitale Karten und Kontostände bleiben in den offiziellen Anbieter-Apps. Gib dein Passwort niemals in LiveOS ein.</div></section>'+modules;
   }
   function loyaltyCardsHTML(){
     const cards=Array.isArray(data.loyaltyCards)?data.loyaltyCards:[];
@@ -1629,7 +1713,8 @@
   function calendarHTML(){
     const eventForm='<form id="event-form" class="grid gap-3 sm:grid-cols-2"><input class="liveos-field sm:col-span-2" name="title" maxlength="90" placeholder="Name des Termins oder Anrufs" required><select class="liveos-field" name="type"><option>Termin</option><option>Anruf</option><option>Geburtstag</option><option>Erinnerung</option></select><input class="liveos-field" name="date" type="date" value="'+todayISO()+'" required><input class="liveos-field" name="time" type="time"><input class="liveos-field" name="note" maxlength="200" placeholder="Notiz (optional)"><button class="liveos-primary sm:col-span-2" type="submit">'+icon("calendar-plus","h-4 w-4")+' Einplanen</button></form>';
     const events=data.events.slice().sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-    const list=events.length?'<div class="space-y-2">'+events.map(e=>'<div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3"><div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-600 ring-1 ring-slate-200">'+icon(e.type==="Anruf"?"phone":e.type==="Geburtstag"?"cake":"calendar-days","h-5 w-5")+'</div><div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold text-slate-800">'+esc(e.title)+'</div><div class="mt-0.5 text-xs text-slate-500">'+fmtDate(e.date,{weekday:"short",day:"2-digit",month:"short",year:"numeric"})+' · '+esc(e.time||"Keine Uhrzeit")+' · '+esc(e.type)+'</div>'+(e.note?'<div class="mt-1 truncate text-xs text-slate-400">'+esc(e.note)+'</div>':"")+'</div><button class="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600" data-action="delete-event" data-id="'+esc(e.id)+'" aria-label="Termin löschen">'+icon("trash-2","h-4 w-4")+'</button></div>').join("")+'</div>':emptyState("Noch keine Termine","Erstelle einen Termin oder plane einen Anruf.","calendar-days");
+    const calendarLinkActive=Array.isArray(data.enabledPlugins)&&data.enabledPlugins.includes("calendar-link");
+    const list=events.length?'<div class="space-y-2">'+events.map(e=>'<div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3"><div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-600 ring-1 ring-slate-200">'+icon(e.type==="Anruf"?"phone":e.type==="Geburtstag"?"cake":"calendar-days","h-5 w-5")+'</div><div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold text-slate-800">'+esc(e.title)+'</div><div class="mt-0.5 text-xs text-slate-500">'+fmtDate(e.date,{weekday:"short",day:"2-digit",month:"short",year:"numeric"})+' · '+esc(e.time||"Keine Uhrzeit")+' · '+esc(e.type)+'</div>'+(e.note?'<div class="mt-1 truncate text-xs text-slate-400">'+esc(e.note)+'</div>':"")+(calendarLinkActive?'<div class="mt-3 flex flex-wrap gap-2"><a href="'+esc(googleCalendarUrl(e))+'" target="_blank" rel="noopener noreferrer" class="liveos-secondary px-3 py-2 text-xs">'+icon("external-link","h-3.5 w-3.5")+' Google Kalender</a><button type="button" data-action="calendar-download-ics" data-id="'+esc(e.id)+'" class="liveos-secondary px-3 py-2 text-xs">'+icon("download","h-3.5 w-3.5")+' Geräte-Kalender (.ics)</button></div>':"")+'</div><button class="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600" data-action="delete-event" data-id="'+esc(e.id)+'" aria-label="Termin löschen">'+icon("trash-2","h-4 w-4")+'</button></div>').join("")+'</div>':emptyState("Noch keine Termine","Erstelle einen Termin oder plane einen Anruf.","calendar-days");
     return '<div class="space-y-6"><div class="grid gap-4 md:grid-cols-[.9fr_1.1fr]">'+card("Monatskalender",fmtDate(todayISO(),{month:"long",year:"numeric"}),"calendar-days",calendarGrid())+card("Termin oder Anruf planen","Lege fest, wann du etwas erledigen möchtest","calendar-plus",eventForm)+'</div>'+card("Deine Termine",events.length+" Einträge","clock",list)+remindersHTML()+'</div>';
   }
 
@@ -1808,6 +1893,12 @@
       else showLiveOSFeedback("plugin","Plugin hinzugefügt",shoppingPluginCatalog.find(plugin=>plugin.id===id).name+" ist jetzt in LiveOS verfügbar.");
       save();render();return;
     }
+    if(action==="calendar-download-ics"){
+      const calendarEvent=(data.events||[]).find(item=>item.id===el.dataset.id);
+      if(calendarEvent)downloadCalendarIcs([calendarEvent]);
+      return;
+    }
+    if(action==="calendar-export-all"){downloadCalendarIcs(data.events||[]);return;}
     if(action==="delete-offer"){
       data.offers=(Array.isArray(data.offers)?data.offers:[]).filter(offer=>offer.id!==el.dataset.id);save();render();return;
     }
