@@ -1564,10 +1564,10 @@
 
   function calendarEventTiming(event){
     const date=String(event&&event.date||"");
-    if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return null;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return null;
     const parts=date.split("-").map(Number),year=parts[0],month=parts[1],day=parts[2];
     const time=String(event&&event.time||"").trim();
-    const timed=/^\\d{2}:\\d{2}$/.test(time);
+    const timed=/^\d{2}:\d{2}$/.test(time);
     const bits=timed?time.split(":").map(Number):[0,0];
     const start=new Date(year,month-1,day,bits[0],bits[1],0,0);
     if(!Number.isFinite(start.getTime())||start.getFullYear()!==year||start.getMonth()!==month-1||start.getDate()!==day)return null;
@@ -1581,10 +1581,10 @@
     return calendarLocalDate(value)+"T"+calendarPad(value.getHours())+calendarPad(value.getMinutes())+"00";
   }
   function calendarUtcStamp(value){
-    return value.toISOString().replace(/[-:]/g,"").replace(/\\.\\d{3}/,"");
+    return value.toISOString().replace(/[-:]/g,"").replace(/\.\d{3}/,"");
   }
   function calendarIcsEscape(value){
-    return String(value||"").replace(/\\\\/g,"\\\\\\\\").replace(/\\r?\\n/g,"\\\\n").replace(/,/g,"\\\\,").replace(/;/g,"\\\\;");
+    return String(value||"").replace(/\\/g,"\\\\").replace(/\r?\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;");
   }
   function calendarIcsText(events){
     const list=(Array.isArray(events)?events:[events]).filter(Boolean),lines=[
@@ -1594,7 +1594,7 @@
       const timing=calendarEventTiming(event);
       if(!timing)return;
       const uid=(String(event.id||("event-"+index)).replace(/[^A-Za-z0-9_.-]/g,"")||("event-"+index))+"@liveos";
-      const details=[event.type||"Termin",event.note||""].filter(Boolean).join("\\n");
+      const details=[event.type||"Termin",event.note||""].filter(Boolean).join("\n");
       lines.push("BEGIN:VEVENT");
       lines.push("UID:"+uid);
       lines.push("DTSTAMP:"+calendarUtcStamp(new Date()));
@@ -1610,14 +1610,14 @@
       lines.push("END:VEVENT");
     });
     lines.push("END:VCALENDAR");
-    return lines.join("\\r\\n")+"\\r\\n";
+    return lines.join("\r\n")+"\r\n";
   }
   function downloadCalendarIcs(events){
     const list=(Array.isArray(events)?events:[events]).filter(Boolean);
     if(!list.length){window.alert("Es gibt noch keine Termine zum Exportieren.");return;}
     const text=calendarIcsText(list);
     if(!text.includes("BEGIN:VEVENT")){window.alert("Die Termine enthalten kein gültiges Datum.");return;}
-    const blob=new Blob(["\\uFEFF",text],{type:"text/calendar;charset=utf-8"});
+    const blob=new Blob(["\uFEFF",text],{type:"text/calendar;charset=utf-8"});
     const objectUrl=URL.createObjectURL(blob),anchor=document.createElement("a");
     anchor.href=objectUrl;
     anchor.download="LiveOS-Kalender.ics";
@@ -1632,7 +1632,7 @@
     const url=new URL("https://calendar.google.com/calendar/render");
     url.searchParams.set("action","TEMPLATE");
     url.searchParams.set("text",String(event.title||"LiveOS-Termin"));
-    url.searchParams.set("details",[event.type||"Termin",event.note||""].filter(Boolean).join("\\n"));
+    url.searchParams.set("details",[event.type||"Termin",event.note||""].filter(Boolean).join("\n"));
     url.searchParams.set("dates",timing.allDay
       ?calendarLocalDate(timing.start)+"/"+calendarLocalDate(timing.end)
       :calendarLocalStamp(timing.start)+"/"+calendarLocalStamp(timing.end));
@@ -1641,7 +1641,7 @@
   }
   function calendarPluginHTML(){
     const count=(data.events||[]).length;
-    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("calendar-sync","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Kalender-Verknüpfung</h2><p class="mt-1 text-xs leading-5 text-slate-500">Übertrage deine LiveOS-Termine in den Kalender, den du bereits nutzt.</p></div></div><div class="mt-4 grid gap-3 sm:grid-cols-3"><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-days","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Google Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Öffnet einen vorbereiteten Termin in Google Kalender. Du bestätigst ihn dort selbst.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("smartphone","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Android-Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Lädt eine .ics-Datei herunter, die du mit deiner Kalender-App öffnen kannst.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-heart","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Apple Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Nutzt dieselbe .ics-Datei, die du auf dem iPhone oder iPad in Kalender übernehmen kannst.</p></div></div><div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3"><div><div class="text-sm font-semibold text-slate-800">'+count+' LiveOS-Termine</div><p class="mt-0.5 text-xs leading-5 text-slate-500">Alle Termine gesammelt als Kalenderdatei exportieren.</p></div><button type="button" data-action="calendar-export-all" class="liveos-secondary" '+(count?"":"disabled")+'> '+icon("download","h-4 w-4")+' Kalenderdatei herunterladen</button></div><p class="mt-3 text-[11px] leading-5 text-slate-500">Hinweis: Der Export erstellt Einträge in deinem externen Kalender. LiveOS liest externe Kalender derzeit nicht aus und gleicht Änderungen noch nicht automatisch in beide Richtungen ab.</p></section>';
+    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("calendar-sync","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Kalender-Verknüpfung</h2><p class="mt-1 text-xs leading-5 text-slate-500">Übertrage deine LiveOS-Termine in den Kalender, den du bereits nutzt.</p></div></div><div class="mt-4 grid gap-3 sm:grid-cols-3"><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-days","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Google Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Öffnet einen vorbereiteten Termin in Google Kalender. Du bestätigst ihn dort selbst.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("smartphone","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Android-Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Lädt eine .ics-Datei herunter, die du mit deiner Kalender-App öffnen kannst.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-heart","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Apple Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Nutzt dieselbe .ics-Datei, die du auf dem iPhone oder iPad in Kalender übernehmen kannst.</p></div></div><div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3"><div><div class="text-sm font-semibold text-slate-800">'+count+' LiveOS-Termine</div><p class="mt-0.5 text-xs leading-5 text-slate-500">Alle Termine gesammelt als Kalenderdatei exportieren.</p></div><button type="button" data-action="calendar-export-all" class="liveos-secondary" '+(count?"":"disabled")+'>'+icon("download","h-4 w-4")+' Kalenderdatei herunterladen</button></div><p class="mt-3 text-[11px] leading-5 text-slate-500">Hinweis: Der Export erstellt Einträge in deinem externen Kalender. LiveOS liest externe Kalender derzeit nicht aus und gleicht Änderungen noch nicht automatisch in beide Richtungen ab.</p></section>';
   }
 
   const shoppingPluginCatalog=[
