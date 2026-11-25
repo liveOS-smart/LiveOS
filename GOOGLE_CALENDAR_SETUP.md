@@ -9,6 +9,7 @@ Die LiveOS-Kalenderintegration wird serverseitig über die Supabase Edge Functio
 3. Aktiviere die **Google Calendar API**.
 4. Richte den OAuth-Zustimmungsbildschirm ein. Für den privaten Testbetrieb kannst du den Veröffentlichungsstatus zunächst auf „Testing“ lassen und dein Google-Konto als Testnutzer hinzufügen.
 5. Erstelle unter „Clients“ eine OAuth-Client-ID vom Typ **Web application**.
+6. Trage als angeforderte Berechtigungen mindestens `openid`, `email` und `https://www.googleapis.com/auth/calendar.events` ein. Die Kalenderberechtigung wird für das Lesen und Schreiben der Termine benötigt.
 
 ## 2. Exakte Weiterleitungsadresse eintragen
 
