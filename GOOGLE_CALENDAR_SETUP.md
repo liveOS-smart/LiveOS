@@ -39,6 +39,12 @@ Optional kannst du diese Werte ebenfalls setzen; die Funktion verwendet dieselbe
 
 Die beiden Google-Secrets reichen für die Standardkonfiguration aus. Nach dem Speichern sind Edge-Function-Secrets unmittelbar verfügbar; ein erneutes Deployment ist nicht nötig.
 
+## Wichtig: Testmodus und dauerhafte Synchronisierung
+
+Der Google-OAuth-Modus „Testing“ ist nur zum Ausprobieren gedacht: Bei externen OAuth-Apps, die Kalender-Berechtigungen anfordern, laufen Testfreigaben und Refresh-Tokens nach **7 Tagen** ab. Dann muss das Google-Konto erneut verbunden werden. Das ist eine Google-Vorgabe, kein Fehler von LiveOS.
+
+Für eine dauerhafte Nutzung muss die App in Google Cloud auf „In production“ gestellt werden. Da Kalenderdaten als sensible Nutzerdaten gelten können, kann Google dafür eine OAuth-Prüfung verlangen. Für private Entwicklung oder wenige persönlich bekannte Testnutzer gibt es Ausnahmen, aber weiterhin mit Nutzerbegrenzung und Tester-Warnung. Für eine öffentliche Freigabe können zusätzlich eine verifizierte Domain, eine öffentlich erreichbare Datenschutzerklärung und weitere Nachweise erforderlich sein.
+
 ## 4. Verbindung in LiveOS herstellen
 
 1. LiveOS öffnen und anmelden.
