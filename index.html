@@ -1052,12 +1052,12 @@
     auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true}
   });
   const root=document.getElementById("root");
-   const LIVEOS_BOOT_MIN_MS=3100,liveOSBootStartedAt=Date.now();
-   let liveOSBootTimer=null;
   let currentUser=null,authReady=false,authMode="login",authMessage="",authMessageType="info",authBusy=false,authEmailDraft="";
+  let calendarSyncConnected=false,calendarSyncConfigured=null,calendarSyncBusy=false,calendarSyncEmail="",calendarSyncLastAt=null;
+  let calendarSyncInterval=null,calendarSyncDebounce=null,calendarRedirectHandled=false;
   let syncQueue=Promise.resolve(),syncStatus="idle",realtimeChannel=null,authHydrationToken=0;
   const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
-  const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],tasks:[],lists:[],notes:[],reminders:[],productMemories:[],loyaltyCards:[],enabledPlugins:[],offers:[]});
+  const defaultState=()=>({monthlyIncome:0,expenses:[],events:[],calendarPendingDeletes:[],tasks:[],lists:[],notes:[],reminders:[],productMemories:[],loyaltyCards:[],enabledPlugins:[],offers:[]});
   const dataStorageKey=()=>currentUser?STORAGE_KEY+":user:"+currentUser.id:STORAGE_KEY+":guest";
   const normalizeState=(value)=>{
     const base=defaultState();
@@ -1067,6 +1067,7 @@
     return Object.assign(base,value,{
       expenses:Array.isArray(value.expenses)?value.expenses:[],
       events:Array.isArray(value.events)?value.events:[],
+      calendarPendingDeletes:Array.isArray(value.calendarPendingDeletes)?value.calendarPendingDeletes:[],
       tasks:Array.isArray(value.tasks)?value.tasks:[],
       lists:Array.isArray(value.lists)?value.lists:[],
       notes:Array.isArray(value.notes)?value.notes:[],
@@ -1110,7 +1111,7 @@
       if(result.error)throw result.error;
       const reminderResult=await supabaseClient.rpc("liveos_sync_reminders",{p_reminders:savedState.reminders||[]});
       if(reminderResult.error)throw reminderResult.error;
-      if(currentUser&&currentUser.id===userId){syncStatus="saved";updateSyncStatusUI();}
+      if(currentUser&&currentUser.id===userId){syncStatus="saved";updateSyncStatusUI();scheduleGoogleCalendarSync(1800);}
     }).catch(error=>{
       console.error("LiveOS cloud sync failed.",error);
       if(currentUser&&currentUser.id===userId){syncStatus="error";updateSyncStatusUI();}
@@ -1379,7 +1380,128 @@
     const node=document.getElementById("liveos-sync-status");
     if(node)node.textContent=syncStatusLabel();
   }
+  function googleCalendarEnabled(){
+    return Array.isArray(data.enabledPlugins)&&data.enabledPlugins.includes("calendar-link");
+  }
+  function clearGoogleCalendarSyncTimers(){
+    if(calendarSyncInterval!==null){clearInterval(calendarSyncInterval);calendarSyncInterval=null;}
+    if(calendarSyncDebounce!==null){clearTimeout(calendarSyncDebounce);calendarSyncDebounce=null;}
+  }
+  async function googleCalendarAction(action){
+    const result=await supabaseClient.functions.invoke("google-calendar-sync",{body:{action}});
+    if(result.error){
+      const context=result.error.context;
+      let message=result.error.message||"Google Kalender konnte nicht erreicht werden.";
+      if(context&&typeof context.json==="function"){
+        try{const body=await context.json();if(body&&body.error)message=body.error;}catch(_){}
+      }
+      throw new Error(message);
+    }
+    if(result.data&&result.data.error)throw new Error(result.data.error);
+    return result.data||{};
+  }
+  async function runGoogleCalendarSync(manual){
+    if(calendarSyncBusy||!currentUser||!calendarSyncConnected||!googleCalendarEnabled()||!navigator.onLine)return;
+    calendarSyncBusy=true;
+    const userId=currentUser.id;
+    try{
+      const result=await googleCalendarAction("sync");
+      if(!currentUser||currentUser.id!==userId)return;
+      if(result.state&&typeof result.state==="object"){
+        data=normalizeState(result.state);
+        try{localStorage.setItem(dataStorageKey(),JSON.stringify(data));}catch(error){console.warn("LiveOS Kalender-Cache konnte nicht aktualisiert werden.",error);}
+      }
+      calendarSyncLastAt=result.last_sync_at||new Date().toISOString();
+      if(manual)showLiveOSFeedback("success","Kalender synchronisiert","LiveOS und Google Kalender sind abgeglichen.");
+      if(activePage==="calendar"||activePage==="shopping")render();
+    }catch(error){
+      console.warn("Google Calendar sync failed.",error);
+      if(manual)showLiveOSFeedback("error","Kalender-Synchronisierung fehlgeschlagen",error.message||"Bitte prüfe deine Google-Verbindung.");
+    }finally{
+      calendarSyncBusy=false;
+    }
+  }
+  function scheduleGoogleCalendarSync(delay){
+    if(!currentUser||!calendarSyncConnected||!googleCalendarEnabled())return;
+    if(calendarSyncDebounce!==null)clearTimeout(calendarSyncDebounce);
+    calendarSyncDebounce=setTimeout(()=>{
+      calendarSyncDebounce=null;
+      runGoogleCalendarSync(false);
+    },Number.isFinite(delay)?delay:2200);
+  }
+  async function initializeGoogleCalendarSync(userId){
+    clearGoogleCalendarSyncTimers();
+    calendarSyncConnected=false;
+    calendarSyncConfigured=null;
+    calendarSyncEmail="";
+    if(!currentUser||currentUser.id!==userId||!googleCalendarEnabled())return;
+    try{
+      const status=await googleCalendarAction("status");
+      if(!currentUser||currentUser.id!==userId)return;
+      calendarSyncConfigured=Boolean(status.configured);
+      calendarSyncConnected=Boolean(status.connected);
+      calendarSyncEmail=String(status.email||"");
+      calendarSyncLastAt=status.last_sync_at||null;
+      if(calendarSyncConnected){
+        scheduleGoogleCalendarSync(900);
+        calendarSyncInterval=setInterval(()=>runGoogleCalendarSync(false),60000);
+      }
+      render();
+      if(!calendarRedirectHandled){
+        calendarRedirectHandled=true;
+        const url=new URL(window.location.href);
+        const connected=url.searchParams.get("calendar_connected");
+        const error=url.searchParams.get("calendar_error");
+        if(connected||error){
+          url.searchParams.delete("calendar_connected");
+          url.searchParams.delete("calendar_error");
+          history.replaceState({},document.title,url.pathname+url.search+url.hash);
+          if(connected)showLiveOSFeedback("success","Google Kalender verbunden","Die erste Synchronisierung wurde gestartet.");
+          else showLiveOSFeedback("error","Google-Verbindung nicht abgeschlossen","Bitte überprüfe die Google-OAuth-Einrichtung und versuche es erneut.");
+        }
+      }
+    }catch(error){
+      console.warn("Google Calendar connection status unavailable.",error);
+      calendarSyncConfigured=false;
+      calendarSyncConnected=false;
+    }
+  }
+  async function connectGoogleCalendar(){
+    try{
+      const result=await googleCalendarAction("connect");
+      if(!result.url)throw new Error("Google hat keine Verbindungsadresse geliefert.");
+      window.location.href=result.url;
+    }catch(error){
+      showLiveOSFeedback("error","Google Kalender noch nicht bereit",error.message||"Die Verbindung konnte nicht gestartet werden.");
+      render();
+    }
+  }
+  async function disconnectGoogleCalendar(){
+    if(!window.confirm("Möchtest du die Google-Kalender-Verbindung wirklich trennen? Deine LiveOS-Termine bleiben erhalten."))return;
+    try{
+      await googleCalendarAction("disconnect");
+      calendarSyncConnected=false;
+      calendarSyncEmail="";
+      clearGoogleCalendarSyncTimers();
+      showLiveOSFeedback("success","Google Kalender getrennt","Deine LiveOS-Termine bleiben unverändert erhalten.");
+      render();
+    }catch(error){
+      showLiveOSFeedback("error","Verbindung konnte nicht getrennt werden",error.message||"Bitte versuche es erneut.");
+      render();
+    }
+  }
+
+  document.addEventListener("visibilitychange",()=>{
+    if(!document.hidden)scheduleGoogleCalendarSync(800);
+  });
+  window.addEventListener("online",()=>scheduleGoogleCalendarSync(800));
+
   function stopRealtimeSync(){
+    if(realtimeChannel){
+      supabaseClient.removeChannel(realtimeChannel);
+      realtimeChannel=null;
+    }
+  }
     if(realtimeChannel){
       supabaseClient.removeChannel(realtimeChannel);
       realtimeChannel=null;
@@ -1399,6 +1521,7 @@
         data=normalized;
         try{localStorage.setItem(dataStorageKey(),JSON.stringify(data));}catch(error){console.warn("LiveOS cache update failed.",error);}
         render();
+        scheduleGoogleCalendarSync(1200);
       })
       .subscribe(status=>{
         if(status==="CHANNEL_ERROR"||status==="TIMED_OUT")console.warn("LiveOS realtime channel status:",status);
@@ -1446,6 +1569,7 @@
       if(token===authHydrationToken&&currentUser&&currentUser.id===userId){
         authReady=true;
         render();
+        initializeGoogleCalendarSync(userId);
       }
     }
   }
@@ -1454,17 +1578,18 @@
     const oldId=currentUser?currentUser.id:null;
     const nextId=nextUser?nextUser.id:null;
     if(oldId===nextId){
-      if(!authReady||authMode==="update-password"){
-        authReady=true;
-        render();
-      }
+      if(!nextId&&!authReady){authReady=true;render();}
       return;
     }
     authHydrationToken++;
+    clearGoogleCalendarSyncTimers();
+    calendarSyncConnected=false;
+    calendarSyncConfigured=null;
     stopRealtimeSync();
     currentUser=nextUser;
     if(!currentUser){
       if(reminderWatcher){clearInterval(reminderWatcher);reminderWatcher=null;}
+      clearGoogleCalendarSyncTimers();calendarSyncConnected=false;
       data=defaultState();
       syncStatus="idle";
       authReady=true;
@@ -1641,9 +1766,27 @@
   }
   function calendarPluginHTML(){
     const count=(data.events||[]).length;
-    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("calendar-sync","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Kalender-Verknüpfung</h2><p class="mt-1 text-xs leading-5 text-slate-500">Übertrage deine LiveOS-Termine in den Kalender, den du bereits nutzt.</p></div></div><div class="mt-4 grid gap-3 sm:grid-cols-3"><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-days","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Google Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Öffnet einen vorbereiteten Termin in Google Kalender. Du bestätigst ihn dort selbst.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("smartphone","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Android-Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Lädt eine .ics-Datei herunter, die du in einer kompatiblen Kalender-App importieren kannst.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-heart","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Apple Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Du kannst die .ics-Datei auf dem iPhone oder iPad in Apple Kalender übernehmen.</p></div></div><div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3"><div><div class="text-sm font-semibold text-slate-800">'+count+' LiveOS-Termine</div><p class="mt-0.5 text-xs leading-5 text-slate-500">Alle Termine gesammelt als Kalenderdatei exportieren.</p></div><button type="button" data-action="calendar-export-all" class="liveos-secondary" '+(count?"":"disabled")+'>'+icon("download","h-4 w-4")+' Kalenderdatei herunterladen</button></div><p class="mt-3 text-[11px] leading-5 text-slate-500">Hinweis: Der Export erstellt Einträge in deinem externen Kalender. LiveOS liest externe Kalender derzeit nicht aus und gleicht Änderungen noch nicht automatisch in beide Richtungen ab.</p></section>';
+    const active=googleCalendarEnabled();
+    const connected=active&&calendarSyncConnected;
+    const configured=calendarSyncConfigured===true;
+    const stateLabel=!active?"Noch nicht aktiviert":connected?"Mit Google verbunden":calendarSyncConfigured===false?"Google-OAuth-Einrichtung fehlt":"Noch nicht mit Google verbunden";
+    const stateCopy=connected
+      ?"Verbunden"+(calendarSyncEmail?" mit "+esc(calendarSyncEmail):"")+". LiveOS gleicht Änderungen beim Speichern, im geöffneten Zustand und über Google-Pushmeldungen ab."
+      :calendarSyncConfigured===false
+        ?"Der sichere Server-Endpunkt ist bereit. Es fehlen noch deine Google-OAuth-Zugangsdaten in den Supabase Edge Function Secrets."
+        :"Verbinde dein Google-Konto, damit Termine automatisch zwischen LiveOS und Google Kalender abgeglichen werden.";
+    const activation=!active
+      ?'<button type="button" data-action="toggle-plugin" data-id="calendar-link" class="liveos-primary">'+icon("puzzle","h-4 w-4")+' Plugin zu LiveOS hinzufügen</button>'
+      :"";
+    const googleAction=!active?""
+      :connected
+        ?'<div class="flex flex-wrap gap-2"><button type="button" data-action="calendar-sync-now" class="liveos-secondary">'+icon("refresh-cw","h-4 w-4")+' Jetzt synchronisieren</button><button type="button" data-action="calendar-google-disconnect" class="liveos-secondary">'+icon("unlink","h-4 w-4")+' Trennen</button></div>'
+        :'<button type="button" data-action="calendar-google-connect" class="'+(configured?"liveos-primary":"liveos-secondary opacity-60")+'" '+(configured?"":"disabled")+'>'+icon("link","h-4 w-4")+(configured?" Google-Konto verbinden":"Google-Einrichtung ausstehend")+'</button>';
+    const exportSection=active
+      ?'<div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3"><div><div class="text-sm font-semibold text-slate-800">'+count+' LiveOS-Termine</div><p class="mt-0.5 text-xs leading-5 text-slate-500">Zusätzlicher Export für Android und Apple Kalender als .ics-Datei.</p></div><button type="button" data-action="calendar-export-all" class="liveos-secondary" '+(count?"":"disabled")+'>'+icon("download","h-4 w-4")+' Kalenderdatei herunterladen</button></div>'
+      :"";
+    return '<section class="liveos-card p-4 md:p-5"><div class="flex items-start gap-3"><div class="liveos-icon-tile">'+icon("calendar-sync","h-5 w-5")+'</div><div class="min-w-0 flex-1"><h2 class="text-base font-bold text-slate-900">Kalender-Verknüpfung</h2><p class="mt-1 text-xs leading-5 text-slate-500">Google Kalender automatisch mit LiveOS synchronisieren – zusätzlich weiterhin Kalenderdateien für Android und Apple Kalender exportieren.</p></div><span class="rounded-full '+(connected?"bg-emerald-50 text-emerald-700":"bg-slate-100 text-slate-600")+' px-2.5 py-1 text-[10px] font-bold">'+stateLabel+'</span></div><div class="mt-4 grid gap-3 sm:grid-cols-3"><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-days","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Google Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Echter Zwei-Wege-Abgleich mit deinem Google-Hauptkalender.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("smartphone","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Android Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Termine als .ics-Datei in kompatible Kalender-Apps übernehmen.</p></div><div class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-700 ring-1 ring-slate-200">'+icon("calendar-heart","h-4 w-4")+'</div><h3 class="mt-3 text-sm font-bold text-slate-800">Apple Kalender</h3><p class="mt-1 text-xs leading-5 text-slate-500">Dieselbe .ics-Datei auf iPhone, iPad oder Mac importieren.</p></div></div><div class="mt-4 rounded-2xl bg-slate-50 p-3"><div class="text-sm font-semibold text-slate-800">'+stateLabel+'</div><p class="mt-1 text-xs leading-5 text-slate-500">'+stateCopy+'</p><div class="mt-3 flex flex-wrap gap-2">'+activation+googleAction+'</div></div>'+exportSection+'<p class="mt-3 text-[11px] leading-5 text-slate-500">Google wird automatisch im Hintergrund abgeglichen, solange die Verbindung aktiv ist. LiveOS speichert deine Kalender-Zugangsdaten nur serverseitig in Supabase.</p></section>';
   }
-
   const shoppingPluginCatalog=[
     {id:"payback",name:"PAYBACK",subtitle:"Punkte, Coupons und Partner",description:"LiveOS verwaltet deine manuell notierten Kartendaten und deinen letzten Punktestand. Persönliche Coupons und die digitale Karte öffnest du sicher in der PAYBACK App.",url:"https://www.payback.de/app",offersUrl:"https://www.payback.de/coupons",offersLabel:"PAYBACK Coupons"},
     {id:"lidlplus",name:"Lidl Plus",subtitle:"Lidl Punkte, Coupons und Prospekte",description:"Speichere deinen zuletzt gesehenen Punktestand in LiveOS. Persönliche Coupons, digitale Kundenkarte und Kassenbons bleiben in der offiziellen Lidl Plus App.",url:"https://www.lidl.de/c/lidl-plus/s10007388",offersUrl:"https://www.lidl.de/c/online-prospekte/s10005610",offersLabel:"Lidl Prospekte"},
@@ -1715,7 +1858,7 @@
     const events=data.events.slice().sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
     const calendarLinkActive=Array.isArray(data.enabledPlugins)&&data.enabledPlugins.includes("calendar-link");
     const list=events.length?'<div class="space-y-2">'+events.map(e=>'<div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3"><div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-600 ring-1 ring-slate-200">'+icon(e.type==="Anruf"?"phone":e.type==="Geburtstag"?"cake":"calendar-days","h-5 w-5")+'</div><div class="min-w-0 flex-1"><div class="truncate text-sm font-semibold text-slate-800">'+esc(e.title)+'</div><div class="mt-0.5 text-xs text-slate-500">'+fmtDate(e.date,{weekday:"short",day:"2-digit",month:"short",year:"numeric"})+' · '+esc(e.time||"Keine Uhrzeit")+' · '+esc(e.type)+'</div>'+(e.note?'<div class="mt-1 truncate text-xs text-slate-400">'+esc(e.note)+'</div>':"")+(calendarLinkActive?'<div class="mt-3 flex flex-wrap gap-2"><a href="'+esc(googleCalendarUrl(e))+'" target="_blank" rel="noopener noreferrer" class="liveos-secondary px-3 py-2 text-xs">'+icon("external-link","h-3.5 w-3.5")+' Google Kalender</a><button type="button" data-action="calendar-download-ics" data-id="'+esc(e.id)+'" class="liveos-secondary px-3 py-2 text-xs">'+icon("download","h-3.5 w-3.5")+' Kalenderdatei (.ics)</button></div>':"")+'</div><button class="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-rose-600" data-action="delete-event" data-id="'+esc(e.id)+'" aria-label="Termin löschen">'+icon("trash-2","h-4 w-4")+'</button></div>').join("")+'</div>':emptyState("Noch keine Termine","Erstelle einen Termin oder plane einen Anruf.","calendar-days");
-    return '<div class="space-y-6"><div class="grid gap-4 md:grid-cols-[.9fr_1.1fr]">'+card("Monatskalender",fmtDate(todayISO(),{month:"long",year:"numeric"}),"calendar-days",calendarGrid())+card("Termin oder Anruf planen","Lege fest, wann du etwas erledigen möchtest","calendar-plus",eventForm)+'</div>'+card("Deine Termine",events.length+" Einträge","clock",list)+remindersHTML()+'</div>';
+    return '<div class="space-y-6"><div class="grid gap-4 md:grid-cols-[.9fr_1.1fr]">'+card("Monatskalender",fmtDate(todayISO(),{month:"long",year:"numeric"}),"calendar-days",calendarGrid())+card("Termin oder Anruf planen","Lege fest, wann du etwas erledigen möchtest","calendar-plus",eventForm)+'</div>'+card("Deine Termine",events.length+" Einträge","clock",list)+remindersHTML()+calendarPluginHTML()+'</div>';
   }
 
   function listsHTML(){
@@ -1811,11 +1954,8 @@
     return '<div class="liveos-feedback-wrap liveos-feedback-'+esc(item.kind||"success")+'" role="status" aria-live="polite"><div class="liveos-feedback-card"><div class="liveos-feedback-icon">'+artwork+'</div><div class="liveos-feedback-copy"><strong>'+esc(item.title)+'</strong><span>'+esc(item.message||"")+'</span></div></div><div class="liveos-feedback-progress"><span></span></div></div>';
   }
   function render(){
-    const bootRemaining=LIVEOS_BOOT_MIN_MS-(Date.now()-liveOSBootStartedAt);
-    if(!authReady)root.innerHTML=appLoadingHTML();
-    else if(bootRemaining>0){
-      root.innerHTML=appLoadingHTML();
-      if(liveOSBootTimer===null)liveOSBootTimer=setTimeout(()=>{liveOSBootTimer=null;render();},bootRemaining);
+    if(!authReady){
+      if(!root.querySelector(".liveos-boot-screen"))root.innerHTML=appLoadingHTML();
     }
     else if(!currentUser||authMode==="update-password")root.innerHTML=authHTML();
     else root.innerHTML=appHTML()+(bankModalOpen?bankModal():"")+(settingsOpen?settingsHTML():"")+(tutorialOpen?onboardingHTML():"")+liveOSFeedbackHTML();
@@ -1883,6 +2023,9 @@
       }
       return;
     }
+    if(action==="calendar-google-connect"){connectGoogleCalendar();return;}
+    if(action==="calendar-sync-now"){runGoogleCalendarSync(true);return;}
+    if(action==="calendar-google-disconnect"){disconnectGoogleCalendar();return;}
     if(action==="toggle-plugin"){
       const id=String(el.dataset.id||"");
       if(!shoppingPluginCatalog.some(plugin=>plugin.id===id))return;
@@ -1891,7 +2034,12 @@
       data.enabledPlugins=active?data.enabledPlugins.filter(x=>x!==id):[...data.enabledPlugins,id];
       if(active)showLiveOSFeedback("success","Plugin entfernt",shoppingPluginCatalog.find(plugin=>plugin.id===id).name+" ist nicht mehr in deiner Plugin-Zentrale.");
       else showLiveOSFeedback("plugin","Plugin hinzugefügt",shoppingPluginCatalog.find(plugin=>plugin.id===id).name+" ist jetzt in LiveOS verfügbar.");
-      save();render();return;
+      save();
+      if(id==="calendar-link"){
+        if(active){clearGoogleCalendarSyncTimers();calendarSyncConnected=false;}
+        else if(currentUser)initializeGoogleCalendarSync(currentUser.id);
+      }
+      render();return;
     }
     if(action==="calendar-download-ics"){
       const calendarEvent=(data.events||[]).find(item=>item.id===el.dataset.id);
@@ -1919,7 +2067,14 @@
       data.loyaltyCards=(data.loyaltyCards||[]).filter(x=>x.id!==el.dataset.id);save();render();return;
     }
     if(action==="delete-expense"){data.expenses=data.expenses.filter(x=>x.id!==el.dataset.id);save();render();return;}
-    if(action==="delete-event"){data.events=data.events.filter(x=>x.id!==el.dataset.id);save();render();return;}
+    if(action==="delete-event"){
+      const eventToDelete=data.events.find(x=>x.id===el.dataset.id);
+      if(eventToDelete&&eventToDelete.googleEventId){
+        data.calendarPendingDeletes=Array.isArray(data.calendarPendingDeletes)?data.calendarPendingDeletes:[];
+        if(!data.calendarPendingDeletes.includes(eventToDelete.googleEventId))data.calendarPendingDeletes.push(eventToDelete.googleEventId);
+      }
+      data.events=data.events.filter(x=>x.id!==el.dataset.id);save();render();return;
+    }
     if(action==="toggle-task"){
       const task=data.tasks.find(x=>x.id===el.dataset.id);if(task){task.done=!task.done;if(task.done)showLiveOSFeedback("success","Aufgabe erledigt",task.title);save();render();}return;
     }
