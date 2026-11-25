@@ -1502,11 +1502,6 @@
       realtimeChannel=null;
     }
   }
-    if(realtimeChannel){
-      supabaseClient.removeChannel(realtimeChannel);
-      realtimeChannel=null;
-    }
-  }
   function startRealtimeSync(userId){
     stopRealtimeSync();
     realtimeChannel=supabaseClient.channel("liveos-app-state-"+userId)
@@ -1612,6 +1607,7 @@
       authMode="update-password";
       authMessage="Wähle jetzt dein neues Passwort.";
       authMessageType="info";
+      render();
     }
     if(event==="SIGNED_OUT"){
       authMode="login";
