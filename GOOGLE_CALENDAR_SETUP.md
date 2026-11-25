@@ -52,7 +52,7 @@ Für eine dauerhafte Nutzung muss die App in Google Cloud auf „In production�
 3. Im Bereich „Kalender-Verknüpfung“ das Plugin aktivieren.
 4. „Google-Konto verbinden“ antippen und den Zugriff erlauben.
 
-LiveOS synchronisiert neue und gelöschte Termine in beide Richtungen. Google-Änderungen werden über Google Calendar Push Notifications angestoßen; zusätzlich gleicht LiveOS beim Öffnen und während einer aktiven Sitzung regelmäßig ab.
+LiveOS synchronisiert neue und gelöschte Termine in beide Richtungen. Google-Änderungen werden über Google Calendar Push Notifications angestoßen. Zusätzlich läuft in Supabase ein stündlicher Server-Abgleich, der Änderungen nachzieht und ablaufende Push-Kanäle erneuert. Wenn LiveOS geöffnet ist, gleicht die App außerdem beim Speichern und beim Zurückkehren in den Vordergrund ab.
 
 ## Hinweise
 
